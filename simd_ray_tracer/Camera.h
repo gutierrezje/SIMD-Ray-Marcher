@@ -13,7 +13,10 @@ inline constexpr double ASPECT_RATIO = 1.0;
 inline constexpr double FOV = 45.0;
 
 // Constants
+#ifndef __GNUC__
 inline constexpr double M_PI = 3.14159265358979323846;
+#endif
+
 class Camera {
 public:
     Vec3 position;

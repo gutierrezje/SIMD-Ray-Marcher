@@ -10,4 +10,13 @@ if (CMAKE_VERSION VERSION_GREATER 3.12)
   set_property(TARGET scalar_ray_march PROPERTY CXX_STANDARD 20)
 endif()
 
+
+if(MSVC)
+    target_compile_options("simd_ray_march" /arch:AVX2 /std:c++20)
+    target_compile_options("scalar_ray_march" /arch:AVX2 /std:c++20)
+elseif(CMAKE_COMPILER_IS_GNUCC)
+    target_compile_options("simd_ray_march" PUBLIC -mavx2 -std=c++20 -O3)
+    target_compile_options("scalar_ray_march" PUBLIC -mavx2 -std=c++20 -O3)
+endif()
+
 # TODO: Add tests and install targets if needed.
