@@ -40,10 +40,30 @@ Vec3x8 Vec3x8::operator-(double scalar) const {
     return Vec3x8(_mm256_sub_ps(x256, _mm256_set1_ps(scalar)), _mm256_sub_ps(y256, _mm256_set1_ps(scalar)), _mm256_sub_ps(z256, _mm256_set1_ps(scalar)));
 }
 
+void Vec3x8::addWithMask(const Vec3x8& other, __m256 mask) {
+    x256 = _mm256_blendv_ps(x256, _mm256_add_ps(x256, other.x256), mask);
+    y256 = _mm256_blendv_ps(y256, _mm256_add_ps(y256, other.y256), mask);
+    z256 = _mm256_blendv_ps(z256, _mm256_add_ps(z256, other.z256), mask);
+}
+
 void Vec3x8::multiplyWithMask(const Vec3x8& other, __m256 mask) {
     x256 = _mm256_blendv_ps(x256, _mm256_mul_ps(x256, other.x256), mask);
     y256 = _mm256_blendv_ps(y256, _mm256_mul_ps(y256, other.y256), mask);
     z256 = _mm256_blendv_ps(z256, _mm256_mul_ps(z256, other.z256), mask);
+}
+
+__m256 Vec3x8::dotWithMask(const Vec3x8& other, __m256 mask, __m256 dotProd) const {
+    return _mm256_blendv_ps(
+        dotProd,
+        _mm256_add_ps(
+            _mm256_add_ps(
+                _mm256_mul_ps(x256, other.x256),
+                _mm256_mul_ps(y256, other.y256)
+            ),
+            _mm256_mul_ps(z256, other.z256)
+        ),
+        mask
+    );
 }
 
 void Vec3x8::resetColor() {
@@ -66,6 +86,17 @@ Vec3x8 Vec3x8::abs() const {
             _mm256_set1_ps(-0.0),
             z256
         )
+    );
+}
+
+__m256 Vec3x8::dot(const Vec3x8& other) const {
+    // xs * other.xs + ys * other.ys + zs * other.zs
+    return _mm256_add_ps(
+        _mm256_add_ps(
+            _mm256_mul_ps(x256, other.x256),
+            _mm256_mul_ps(y256, other.y256)
+        ),
+        _mm256_mul_ps(z256, other.z256)
     );
 }
 

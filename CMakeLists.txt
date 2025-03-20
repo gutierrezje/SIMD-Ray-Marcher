@@ -10,10 +10,13 @@ if (POLICY CMP0141)
 endif()
 
 if(MSVC)
-    target_compile_options(Maths PRIVATE /arch:AVX2)
+    target_compile_options(/arch:AVX2 /std:c++17)
+elseif(CMAKE_COMPILER_IS_GNUCC)
+    target_compile_options(-mavx2 -std=c++17)
 endif()
 
-project ("simd_ray_tracer")
+project ("simd_ray_marcher")
 
 # Include sub-projects.
 add_subdirectory ("simd_ray_tracer")
+

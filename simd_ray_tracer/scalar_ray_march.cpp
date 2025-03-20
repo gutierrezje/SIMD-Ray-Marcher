@@ -1,11 +1,15 @@
 ﻿// simd_ray_tracer.cpp : Defines the entry point for the application.
 //
 
-#include "scalar_ray_march.h"
+#include <iostream>
+#include <cmath>
+#include <vector>
+
+#include "Camera.h"
 
 #include <chrono>
 
-//#define STB_IMAGE_WRITE_IMPLEMENTATION
+#define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h" // Or other image library
 
 // Mandelbulb parameters
@@ -119,12 +123,20 @@ double optimMandelbulb(Vec3 pos) {
 
         float k3 = x2 + z2;
         float k2 = 1. / std::sqrt(k3 * k3 * k3 * k3 * k3 * k3 * k3);
-        float k1 = x4 + y4 + z4 - 6.0 * y2 * z2 - 6.0 * x2 * y2 + 2.0 * z2 * x2;
+        float k1 = x4 + y4 + z4 - (6.0 * y2 * z2) - (6.0 * x2 * y2) + (2.0 * z2 * x2);
         float k4 = x2 - y2 + z2;
 
-        w.x = pos.x + 64.0 * x * y * z * (x2 - z2) * k4 * (x4 - 6.0 * x2 * z2 + z4) * k1 * k2;
+        w.x = pos.x + (64.0 * x * y * z) * (x2 - z2) * k4 * (x4 - 6.0 * x2 * z2 + z4) * k1 * k2;
         w.y = pos.y + -16.0 * y2 * k3 * k4 * k4 + k1 * k1;
-        w.z = pos.z + -8.0 * y * k4 * (x4 * x4 - 28.0 * x4 * x2 * z2 + 70.0 * x4 * z4 - 28.0 * x2 * z2 * z4 + z4 * z4) * k1 * k2;
+        w.z = pos.z + 
+            -8.0 * y * k4 * 
+            ( // add(sub(add(sub(z21, z22), z23), z24), z25)
+                x4 * x4 - 
+                (28.0 * x4 * x2 * z2) + 
+                (70.0 * x4 * z4) - 
+                (28.0 * x2 * z2 * z4) + 
+                z4 * z4
+            ) * k1 * k2;
 
         m = w.dot(w);
         if (m > 256.0f)
@@ -140,8 +152,8 @@ double sceneSDF(double x, double y, double z) {
     double sphere = sphereSDF(p / 1.2, Vec3(0, 0, 0), 1.0) * 1.2;
     double cube = boxSDF(p, Vec3(0, 0, 0), Vec3(1, 1, 1));
     return intersectSDF(sphere, cube);*/
-    //return mandelbulb1(Vec3(x, y, z));
-    return sphereSDF(Vec3(x, y, z), Vec3(0, 0, 0), 1.0);
+    return optimMandelbulb(Vec3(x, y, z));
+    //return sphereSDF(Vec3(x, y, z), Vec3(0, 0, 0), 1.0);
 }
 
 Vec3 estimateNormal(Vec3 p) {
@@ -185,27 +197,27 @@ void ray_march(Vec3 origin, Camera camera, std::vector<unsigned char>& image) {
 
 }
 
-//int main() {
-//    std::vector<unsigned char> image(WIDTH * HEIGHT * 3);
-//
-//    Vec3 camera_position = Vec3(1., 0., 2.5);
-//    Vec3 look_at = Vec3(0, 0, 0);
-//    Vec3 up = Vec3(0, 1, 0);
-//    Camera camera(camera_position, look_at, up);
-//
-//    // Set up timer
-//    auto start = std::chrono::high_resolution_clock::now();
-//
-//    for (int y = 0; y < HEIGHT; y++) {
-//        for (int x = 0; x < WIDTH; x++)  {
-//            ray_march(Vec3(x, y, 0), camera, image);
-//        }
-//    }
-//
-//    auto end = std::chrono::high_resolution_clock::now();
-//    std::chrono::duration<double> elapsed = end - start;
-//    std::cout << "Elapsed time: " << elapsed.count() << " s" << std::endl;
-//
-//    stbi_write_png("output.png", WIDTH, HEIGHT, 3, image.data(), WIDTH * 3);
-//    return 0;
-//}
+int main() {
+    std::vector<unsigned char> image(WIDTH * HEIGHT * 3);
+
+    Vec3 camera_position = Vec3(0., 0., 2.);
+    Vec3 look_at = Vec3(0, 0, 0);
+    Vec3 up = Vec3(0, 1, 0);
+    Camera camera(camera_position, look_at, up);
+
+    // Set up timer
+    auto start = std::chrono::high_resolution_clock::now();
+
+    for (int y = 0; y < HEIGHT; y++) {
+        for (int x = 0; x < WIDTH; x++)  {
+            ray_march(Vec3(x, y, 0), camera, image);
+        }
+    }
+
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = end - start;
+    std::cout << "Elapsed time: " << elapsed.count() << " s" << std::endl;
+
+    stbi_write_png("output.png", WIDTH, HEIGHT, 3, image.data(), WIDTH * 3);
+    return 0;
+}

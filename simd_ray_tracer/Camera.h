@@ -4,8 +4,8 @@
 #include "Vec3x8.h"
 
 // Image parameters
-inline constexpr int WIDTH = 256;
-inline constexpr int HEIGHT = 256;
+inline constexpr int WIDTH = 2056;
+inline constexpr int HEIGHT = 2056;
 
 // Camera parameters
 inline constexpr double CAMERA_DISTANCE = 3.0;

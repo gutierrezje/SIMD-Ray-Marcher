@@ -1,4 +1,12 @@
-#include "simd_ray_march.h"
+#include <iostream>
+#include <chrono>
+#include <cmath>
+#include <vector>
+
+#include <immintrin.h>
+
+#include "Camera.h"
+
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h" // Or other image library
@@ -14,17 +22,156 @@ constexpr double MIN_DIST = 0.001;
 constexpr double MAX_DIST = 100.0;
 constexpr int MAX_STEPS = 100;
 
-#ifndef DEBUG
+
 bool hasNan(__m256 v) {
+#ifdef DEBUG
     __m256 mask = _mm256_cmp_ps(v, v, _CMP_UNORD_Q);
     return !_mm256_testz_ps(mask, mask);
 }
 #else
-bool checkNan(__m256 v) {
     return false;
-}
 #endif // DEBUG
+}
 
+__m256 optimMandelbulb(Vec3x8& p) {
+    Vec3x8 w(p.x256, p.y256, p.z256);
+    __m256 m = w.dot(w);
+
+    __m256 dz = _mm256_set1_ps(1.0f);
+    __m256 apply_mask = _mm256_set1_ps(-std::numeric_limits<float>::signaling_NaN());
+    __m256 break_mask = _mm256_set1_ps(0.0f);
+
+    for (int i = 0; i < 4; i++) {
+        __m256 m2 = _mm256_mul_ps(m, m);
+        __m256 m4 = _mm256_mul_ps(m2, m2);
+        // dz = 8.0 * sqrt(m4 * m2 * m) * dz + 1.0;
+        __m256 temp_dz = _mm256_mul_ps(m4, _mm256_mul_ps(m2, m));
+        temp_dz = _mm256_sqrt_ps(temp_dz);
+        temp_dz = _mm256_mul_ps(_mm256_set1_ps(8.0f), _mm256_mul_ps(temp_dz, dz));
+        dz = _mm256_add_ps(temp_dz, _mm256_set1_ps(1.0f));
+
+        __m256 x = w.x256; __m256 x2 = _mm256_mul_ps(x, x); __m256 x4 = _mm256_mul_ps(x2, x2);
+        __m256 y = w.y256; __m256 y2 = _mm256_mul_ps(y, y); __m256 y4 = _mm256_mul_ps(y2, y2);
+        __m256 z = w.z256; __m256 z2 = _mm256_mul_ps(z, z); __m256 z4 = _mm256_mul_ps(z2, z2);
+
+        __m256 k3 = _mm256_add_ps(x2, z2);
+
+        // float k2 = 1. / std::sqrt(k3 * k3 * k3 * k3 * k3 * k3 * k3);
+        __m256 k3sq = _mm256_mul_ps(k3, k3);
+        __m256 k2 = _mm256_mul_ps(k3sq, k3sq);
+        k2 = _mm256_mul_ps(_mm256_mul_ps(k2, k3sq), k3);
+        k2 = _mm256_div_ps(_mm256_set1_ps(1.0f), _mm256_sqrt_ps(k2));
+
+        // float k1 = x4 + y4 + z4 - 6.0 * y2 * z2 - 6.0 * x2 * y2 + 2.0 * z2 * x2;
+        __m256 k1 = _mm256_add_ps(x4, _mm256_add_ps(y4, z4));
+        __m256 k1l = _mm256_mul_ps(_mm256_set1_ps(6.f), _mm256_mul_ps(y2, z2));
+        __m256 k1m = _mm256_mul_ps(_mm256_set1_ps(6.f), _mm256_mul_ps(x2, y2));
+        __m256 k1r = _mm256_mul_ps(_mm256_set1_ps(2.f), _mm256_mul_ps(z2, x2));
+        k1 = _mm256_sub_ps(k1, k1l);
+        k1 = _mm256_sub_ps(k1, k1m);
+        k1 = _mm256_add_ps(k1, k1r);
+
+        __m256 k4 = _mm256_add_ps(_mm256_sub_ps(x2, y2), z2);
+
+        w.x256 = _mm256_mul_ps(_mm256_set1_ps(64.f), _mm256_mul_ps(x, _mm256_mul_ps(y, z)));
+        w.x256 = _mm256_mul_ps(w.x256, _mm256_mul_ps(_mm256_sub_ps(x2, z2), k4));
+        w.x256 = _mm256_mul_ps(
+            w.x256,
+            _mm256_add_ps(
+                _mm256_sub_ps(
+                    x4,
+                    _mm256_mul_ps(
+                        _mm256_set1_ps(6.f),
+                        _mm256_mul_ps(
+                            x2,
+                            z2)
+                    )
+                ),
+                z4
+            )
+        );
+        w.x256 = _mm256_mul_ps(w.x256, _mm256_mul_ps(k1, k2));
+        w.x256 = _mm256_add_ps(w.x256, p.x256);
+
+        w.y256 = _mm256_mul_ps(
+            _mm256_mul_ps(
+                _mm256_set1_ps(-16.f),
+                _mm256_mul_ps(y2, k3)),
+            _mm256_mul_ps(k4, k4)
+        );
+        w.y256 = _mm256_add_ps(w.y256, p.y256);
+        w.y256 = _mm256_add_ps(
+            w.y256,
+            _mm256_mul_ps(k1, k1)
+        );
+
+        __m256 wz1 = _mm256_mul_ps(
+            _mm256_set1_ps(-8.f),
+            _mm256_mul_ps(y, k4)
+        );
+        __m256 wz21 = _mm256_mul_ps(x4, x4);
+        __m256 wz22 = _mm256_mul_ps(
+            _mm256_set1_ps(28.f),
+            _mm256_mul_ps(
+                x4,
+                _mm256_mul_ps(
+                    x2,
+                    z2
+                )
+            )
+        );
+        __m256 wz23 = _mm256_mul_ps(
+            _mm256_set1_ps(70.f),
+            _mm256_mul_ps(
+                x4,
+                z4
+            )
+        );
+        __m256 wz24 = _mm256_mul_ps(
+            _mm256_set1_ps(28.f),
+            _mm256_mul_ps(
+                x2,
+                _mm256_mul_ps(
+                    z2,
+                    z4
+                )
+            )
+        );
+        __m256 wz25 = _mm256_mul_ps(z4, z4);
+        __m256 wz2 = _mm256_add_ps(
+            _mm256_sub_ps(
+                _mm256_add_ps(
+                    _mm256_sub_ps(
+                        wz21, wz22
+                    ),
+                    wz23
+                ),
+                wz24
+            ), wz25
+        );
+        __m256 wz3 = _mm256_mul_ps(k1, k2);
+        w.z256 = _mm256_add_ps(
+            p.z256,
+            _mm256_mul_ps(
+                wz1,
+                _mm256_mul_ps(wz2, wz3)));
+
+        m = w.dotWithMask(w, apply_mask, m);
+        apply_mask = _mm256_cmp_ps(m, _mm256_set1_ps(256.0f), _CMP_LT_OS);
+
+        break_mask = _mm256_cmp_ps(m, _mm256_set1_ps(256.0f), _CMP_GT_OS);
+        if (!_mm256_testz_ps(break_mask, break_mask)) {
+            break;
+        }
+    }
+    return _mm256_div_ps(
+        _mm256_mul_ps(
+            _mm256_set1_ps(0.25f),
+            _mm256_mul_ps(
+                _mm256_log_ps(m),
+                _mm256_sqrt_ps(m))),
+        dz);
+}
 
 __m256 sphereSDF(Vec3x8& p) {
     const __m256 radius = _mm256_set1_ps(1.0f);
@@ -35,7 +182,7 @@ __m256 sphereSDF(Vec3x8& p) {
 }
 
 __m256 sceneSDF(Vec3x8& p) {
-    return sphereSDF(p);
+    return optimMandelbulb(p);
 }
 
 Vec3x8 estimateNormal(Vec3x8& const p) {
@@ -89,32 +236,47 @@ void ray_march(Vec3x8 origins, Camera& camera, std::vector<unsigned char>& image
     __m256 distances = _mm256_set1_ps(0.0);
 
 
-    Vec3x8 color(0.f);
+    Vec3x8 color(0.0f);
     __m256 activeMask = _mm256_set1_ps(-std::numeric_limits<float>::signaling_NaN());
-    for (int i = 0; i < MAX_STEPS; i++) {
-        color.resetColor();
 
+    for (int i = 0; i < MAX_STEPS; i++) {
         Vec3x8 p = ray_origins + directions * distances;
         __m256 dists = sceneSDF(p);
+
+        // Check for rays that have reached the minimum distance
         __m256 mask = _mm256_cmp_ps(dists, _mm256_set1_ps(MIN_DIST), _CMP_LT_OS);
-        //assert(!hasNan(mask));
-        __m256 maskInv2 = _mm256_cmp_ps(distances, _mm256_set1_ps(MAX_DIST), _CMP_GE_OS);
+        // disable rays that have reached the minimum distance before
+        mask = _mm256_and_ps(mask, activeMask);
 
         // check if any of the mask is non zero
         if (!_mm256_testz_ps(mask, mask)) {
             Vec3x8 normals = estimateNormal(p);
+            color.addWithMask(Vec3x8(255.f), mask);
             color.multiplyWithMask(normals, mask);
         }
 
-        //// invert mask
+        // update distances
+        // invert mask
         __m256 maskInv = _mm256_cmp_ps(dists, _mm256_set1_ps(MIN_DIST), _CMP_GT_OS);
+        maskInv = _mm256_and_ps(maskInv, activeMask);
         __m256 newDistances = _mm256_add_ps(distances, dists);
+        distances = _mm256_blendv_ps(distances, newDistances, maskInv);
 
-        distances = _mm256_blendv_ps(newDistances, distances, maskInv);
-        //_mm256_setr_ps(-1, -1, -1, -1, 0, 0, 0, 0);//
-        __m256 mask2 = _mm256_cmp_ps(distances, _mm256_set1_ps(static_cast<float>(MAX_DIST)), _CMP_GT_OS);
+        // Check for rays that have reached the maximum distance
+        __m256 mask2 = _mm256_cmp_ps(distances, _mm256_set1_ps(MAX_DIST), _CMP_GT_OS);
+        mask2 = _mm256_and_ps(mask2, activeMask);
+        if (!_mm256_testz_ps(mask2, mask2)) {
+            color.multiplyWithMask(Vec3x8(0.0f), mask2);
+        }
 
-        color.multiplyWithMask(Vec3x8(0.0f), mask2);
+        // disable inactive rays
+        __m256 terminateMask = _mm256_or_ps(mask, mask2);
+        activeMask = _mm256_andnot_ps(terminateMask, activeMask);
+
+        // check if all rays are inactive
+        if (_mm256_testz_ps(activeMask, activeMask)) {
+            break;
+        }
     }
 
     ////// clamp color
@@ -128,7 +290,7 @@ void ray_march(Vec3x8 origins, Camera& camera, std::vector<unsigned char>& image
 int main() {
     std::vector<unsigned char> image(WIDTH * HEIGHT * 3);
 
-    Vec3 camera_position = Vec3(1., 0., 2.5);
+    Vec3 camera_position = Vec3(0., 0., 2.);
     Vec3 look_at = Vec3(0, 0, 0);
     Vec3 up = Vec3(0, 1, 0);
     Camera camera(camera_position, look_at, up);
