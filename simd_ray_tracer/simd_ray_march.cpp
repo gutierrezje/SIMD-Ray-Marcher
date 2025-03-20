@@ -27,7 +27,6 @@ bool hasNan(__m256 v) {
 #ifdef DEBUG
     __m256 mask = _mm256_cmp_ps(v, v, _CMP_UNORD_Q);
     return !_mm256_testz_ps(mask, mask);
-}
 #else
     return false;
 #endif // DEBUG
