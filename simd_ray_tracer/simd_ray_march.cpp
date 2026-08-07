@@ -3,7 +3,7 @@
 #include <iostream>
 #include <vector>
 
-#include <immintrin.h>
+#include "simd_compat.h"
 
 #include "Camera.h"
 

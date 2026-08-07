@@ -29,7 +29,7 @@
   (this is the zlib license)
 */
 
-#include <immintrin.h>
+#include "simd_compat.h"
 
 /* yes I know, the top of this file is quite ugly */
 #define ALIGN32_BEG
@@ -109,22 +109,30 @@ typedef union imm_xmm_union {
         imm_ = u.imm;                                 \
     }
 
-#define AVX2_BITOP_USING_SSE2(fn)                            \
-    static inline v8si avx2_mm256_##fn(v8si x, int a)        \
-    {                                                        \
-        /* use SSE2 instruction to perform the bitop AVX2 */ \
-        v4si x1, x2;                                         \
-        v8si ret;                                            \
-        COPY_IMM_TO_XMM(x, x1, x2);                          \
-        x1 = _mm_##fn(x1, a);                                \
-        x2 = _mm_##fn(x2, a);                                \
-        COPY_XMM_TO_IMM(x1, x2, ret);                        \
-        return (ret);                                        \
-    }
-
 // #warning "Using SSE2 to perform AVX2 bitshift ops"
-AVX2_BITOP_USING_SSE2(slli_epi32)
-AVX2_BITOP_USING_SSE2(srli_epi32)
+static inline v8si avx2_mm256_slli_epi32(v8si x, int a)
+{
+    v4si x1, x2;
+    v8si ret;
+    const v4si count = _mm_cvtsi32_si128(a);
+    COPY_IMM_TO_XMM(x, x1, x2);
+    x1 = _mm_sll_epi32(x1, count);
+    x2 = _mm_sll_epi32(x2, count);
+    COPY_XMM_TO_IMM(x1, x2, ret);
+    return ret;
+}
+
+static inline v8si avx2_mm256_srli_epi32(v8si x, int a)
+{
+    v4si x1, x2;
+    v8si ret;
+    const v4si count = _mm_cvtsi32_si128(a);
+    COPY_IMM_TO_XMM(x, x1, x2);
+    x1 = _mm_srl_epi32(x1, count);
+    x2 = _mm_srl_epi32(x2, count);
+    COPY_XMM_TO_IMM(x1, x2, ret);
+    return ret;
+}
 
 #define AVX2_INTOP_USING_SSE2(fn)                                         \
     static inline v8si avx2_mm256_##fn(v8si x, v8si y)                    \

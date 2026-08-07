@@ -104,7 +104,8 @@ Vec3x8 Vec3x8::normalize() const {
     __m256 l = length();
     // xs / l, ys / l, zs / l
     // avoid dividing by zero
-    if (!_mm256_testz_ps(l, l)) {
+    __m256 zeroMask = _mm256_cmp_ps(l, _mm256_setzero_ps(), _CMP_EQ_OQ);
+    if (_mm256_movemask_ps(zeroMask) == 0xFF) {
         return Vec3x8();
     }
     __m256 l_inv = _mm256_div_ps(_mm256_set1_ps(1.0), l);

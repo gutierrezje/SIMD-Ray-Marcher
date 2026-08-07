@@ -2,21 +2,48 @@
 # project specific logic here.
 #
 
+# SIMDe keeps the existing AVX-shaped implementation buildable on ARM while
+# the renderer is modernized. The full commit pin is the v0.8.2 release.
+include(FetchContent)
+FetchContent_Declare(
+  simde
+  GIT_REPOSITORY https://github.com/simd-everywhere/simde.git
+  GIT_TAG 71fd833d9666141edcd1d3c109a80e228303d8d7 # v0.8.2
+  GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(simde)
+
 # Add source to this project's executable.
 add_executable (simd_ray_march "simd_ray_march.cpp"   "Camera.h" "Vec3.h" "Vec3.cpp" "Camera.cpp" "Vec3x8.h" "Vec3x8.cpp")
 add_executable (scalar_ray_march "scalar_ray_march.cpp"   "Camera.h" "Vec3.h" "Vec3.cpp" "Camera.cpp" "Vec3x8.h" "Vec3x8.cpp")
-if (CMAKE_VERSION VERSION_GREATER 3.12)
-  set_property(TARGET simd_ray_march PROPERTY CXX_STANDARD 20)
-  set_property(TARGET scalar_ray_march PROPERTY CXX_STANDARD 20)
+
+set(SIMD_RAY_MARCHER_X86 FALSE)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64|i[3-6]86)$")
+    set(SIMD_RAY_MARCHER_X86 TRUE)
+elseif(MSVC AND CMAKE_GENERATOR_PLATFORM MATCHES "^(x64|Win32)$")
+    set(SIMD_RAY_MARCHER_X86 TRUE)
 endif()
 
+foreach(target simd_ray_march scalar_ray_march)
+    set_target_properties(${target} PROPERTIES
+        CXX_STANDARD 20
+        CXX_STANDARD_REQUIRED YES
+        CXX_EXTENSIONS NO
+    )
+    target_include_directories(${target} SYSTEM PRIVATE "${simde_SOURCE_DIR}")
 
-if(MSVC)
-    target_compile_options("simd_ray_march" /arch:AVX2 /std:c++20)
-    target_compile_options("scalar_ray_march" /arch:AVX2 /std:c++20)
-elseif(CMAKE_COMPILER_IS_GNUCC)
-    target_compile_options("simd_ray_march" PUBLIC -mavx2 -std=c++20 -O3)
-    target_compile_options("scalar_ray_march" PUBLIC -mavx2 -std=c++20 -O3)
-endif()
+    if(MSVC)
+        if(SIMD_RAY_MARCHER_X86)
+            target_compile_options(${target} PRIVATE /arch:AVX2)
+        endif()
+    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR
+           CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR
+           CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
+        target_compile_options(${target} PRIVATE -O3)
+        if(SIMD_RAY_MARCHER_X86)
+            target_compile_options(${target} PRIVATE -mavx2)
+        endif()
+    endif()
+endforeach()
 
 # TODO: Add tests and install targets if needed.

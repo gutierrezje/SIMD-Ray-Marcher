@@ -1,6 +1,6 @@
 #pragma once
 
-#include <immintrin.h>
+#include "simd_compat.h"
 #include "Vec3.h"
 
 class Vec3x8 {
