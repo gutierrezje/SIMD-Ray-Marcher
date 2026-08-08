@@ -19,11 +19,11 @@
 
 // Mandelbulb parameters
 constexpr int ITERATIONS = 10;
-constexpr double POWER = 8.0;
+constexpr float POWER = 8.0f;
 
 // Ray marching parameters
-constexpr double MIN_DIST = 0.001;
-constexpr double MAX_DIST = 100.0;
+constexpr float MIN_DIST = 0.001f;
+constexpr float MAX_DIST = 100.0f;
 constexpr int MAX_STEPS = 100;
 
 bool hasNan(__m256 v)
@@ -291,7 +291,7 @@ void ray_march(Vec3x8 origins, Camera& camera, std::vector<unsigned char>& image
     auto [xs, ys, zs] = origins;
     Vec3x8 directions = camera.get_ray_directions(xs, ys);
     Vec3x8 ray_origins(camera.position);
-    __m256 distances = _mm256_set1_ps(0.0);
+    __m256 distances = _mm256_set1_ps(0.0f);
 
     Vec3x8 color(0.0f);
     __m256 activeMask = _mm256_set1_ps(-std::numeric_limits<float>::signaling_NaN());
@@ -347,9 +347,9 @@ int main()
 {
     std::vector<unsigned char> image(WIDTH * HEIGHT * 3);
 
-    Vec3 camera_position = Vec3(0., 0., 2.);
-    Vec3 look_at = Vec3(0, 0, 0);
-    Vec3 up = Vec3(0, 1, 0);
+    Vec3 camera_position = Vec3(0.0f, 0.0f, 2.0f);
+    Vec3 look_at = Vec3(0.0f, 0.0f, 0.0f);
+    Vec3 up = Vec3(0.0f, 1.0f, 0.0f);
     Camera camera(camera_position, look_at, up);
 
     auto start = std::chrono::high_resolution_clock::now();
@@ -358,7 +358,7 @@ int main()
         for (int x = 0; x < WIDTH; x += 8) {
             __m256 us = _mm256_setr_ps(x, x + 1, x + 2, x + 3, x + 4, x + 5, x + 6, x + 7);
             __m256 vs = _mm256_set1_ps(y);
-            ray_march(Vec3x8(us, vs, _mm256_set1_ps(0.0)), camera, image);
+            ray_march(Vec3x8(us, vs, _mm256_set1_ps(0.0f)), camera, image);
         }
     }
 

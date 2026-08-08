@@ -18,10 +18,10 @@ public:
     Vec3x8 operator-(const Vec3x8& other) const;
     Vec3x8 operator*(const Vec3x8& other) const;
     Vec3x8 operator/(const Vec3x8& other) const;
-    Vec3x8 operator*(double scalar) const;
-    Vec3x8 operator/(double scalar) const;
-    Vec3x8 operator+(double scalar) const;
-    Vec3x8 operator-(double scalar) const;
+    Vec3x8 operator*(float scalar) const;
+    Vec3x8 operator/(float scalar) const;
+    Vec3x8 operator+(float scalar) const;
+    Vec3x8 operator-(float scalar) const;
 
     void addWithMask(const Vec3x8& other, __m256 mask);
     void multiplyWithMask(const Vec3x8& other, __m256 mask);

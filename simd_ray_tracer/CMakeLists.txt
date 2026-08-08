@@ -39,7 +39,11 @@ foreach(target simd_ray_march scalar_ray_march)
     elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR
            CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR
            CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
-        target_compile_options(${target} PRIVATE -O3)
+        target_compile_options(${target} PRIVATE
+            -O3
+            -Wdouble-promotion
+            -Werror=double-promotion
+        )
         if(SIMD_RAY_MARCHER_X86)
             target_compile_options(${target} PRIVATE -mavx2)
         endif()

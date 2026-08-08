@@ -1,6 +1,6 @@
 #include "Vec3x8.h"
 
-Vec3x8::Vec3x8() : x256(_mm256_set1_ps(0.0)), y256(_mm256_set1_ps(0.0)), z256(_mm256_set1_ps(0.0)) {}
+Vec3x8::Vec3x8() : x256(_mm256_set1_ps(0.0f)), y256(_mm256_set1_ps(0.0f)), z256(_mm256_set1_ps(0.0f)) {}
 
 Vec3x8::Vec3x8(__m256 s) : x256(s), y256(s), z256(s) {}
 
@@ -24,19 +24,19 @@ Vec3x8 Vec3x8::operator/(const Vec3x8& other) const {
     return Vec3x8(_mm256_div_ps(x256, other.x256), _mm256_div_ps(y256, other.y256), _mm256_div_ps(z256, other.z256));
 }
 
-Vec3x8 Vec3x8::operator*(double scalar) const {
+Vec3x8 Vec3x8::operator*(float scalar) const {
     return Vec3x8(_mm256_mul_ps(x256, _mm256_set1_ps(scalar)), _mm256_mul_ps(y256, _mm256_set1_ps(scalar)), _mm256_mul_ps(z256, _mm256_set1_ps(scalar)));
 }
 
-Vec3x8 Vec3x8::operator/(double scalar) const {
+Vec3x8 Vec3x8::operator/(float scalar) const {
     return Vec3x8(_mm256_div_ps(x256, _mm256_set1_ps(scalar)), _mm256_div_ps(y256, _mm256_set1_ps(scalar)), _mm256_div_ps(z256, _mm256_set1_ps(scalar)));
 }
 
-Vec3x8 Vec3x8::operator+(double scalar) const {
+Vec3x8 Vec3x8::operator+(float scalar) const {
     return Vec3x8(_mm256_add_ps(x256, _mm256_set1_ps(scalar)), _mm256_add_ps(y256, _mm256_set1_ps(scalar)), _mm256_add_ps(z256, _mm256_set1_ps(scalar)));
 }
 
-Vec3x8 Vec3x8::operator-(double scalar) const {
+Vec3x8 Vec3x8::operator-(float scalar) const {
     return Vec3x8(_mm256_sub_ps(x256, _mm256_set1_ps(scalar)), _mm256_sub_ps(y256, _mm256_set1_ps(scalar)), _mm256_sub_ps(z256, _mm256_set1_ps(scalar)));
 }
 
@@ -75,15 +75,15 @@ void Vec3x8::resetColor() {
 Vec3x8 Vec3x8::abs() const {
     return Vec3x8(
         _mm256_andnot_ps(
-            _mm256_set1_ps(-0.0),
+            _mm256_set1_ps(-0.0f),
             x256
         ),
         _mm256_andnot_ps(
-            _mm256_set1_ps(-0.0),
+            _mm256_set1_ps(-0.0f),
             y256
         ),
         _mm256_andnot_ps(
-            _mm256_set1_ps(-0.0),
+            _mm256_set1_ps(-0.0f),
             z256
         )
     );
@@ -108,7 +108,7 @@ Vec3x8 Vec3x8::normalize() const {
     if (_mm256_movemask_ps(zeroMask) == 0xFF) {
         return Vec3x8();
     }
-    __m256 l_inv = _mm256_div_ps(_mm256_set1_ps(1.0), l);
+    __m256 l_inv = _mm256_div_ps(_mm256_set1_ps(1.0f), l);
     __m256 x = _mm256_mul_ps(x256, l_inv);
     __m256 y = _mm256_mul_ps(y256, l_inv);
     __m256 z = _mm256_mul_ps(z256, l_inv);

@@ -14,63 +14,63 @@
 
 // Mandelbulb parameters
 constexpr int ITERATIONS = 10;
-constexpr double POWER = 8.0;
+constexpr float POWER = 8.0f;
 
 // Ray marching parameters
-constexpr double MIN_DIST = 0.001;
-constexpr double MAX_DIST = 100.0;
+constexpr float MIN_DIST = 0.001f;
+constexpr float MAX_DIST = 100.0f;
 constexpr int MAX_STEPS = 100;
 
 // Helper functions
-double length(double x, double y, double z) {
+float length(float x, float y, float z) {
     return std::sqrt(x * x + y * y + z * z);
 }
 
 // Constructive solid geometry functions
 // https://iquilezles.org/www/articles/distfunctions/distfunctions.htm
 
-double unionSDF(double a, double b) {
+float unionSDF(float a, float b) {
     return std::min(a, b);
 }
 
-double intersectSDF(double a, double b) {
+float intersectSDF(float a, float b) {
     return std::max(a, b);
 }
 
-double diffSDF(double a, double b) {
+float diffSDF(float a, float b) {
     return std::max(a, -b);
 }
 
 // Signed distance functions
 
-double sphereSDF(Vec3 p, Vec3 center, double radius) {
+float sphereSDF(Vec3 p, Vec3 center, float radius) {
     return (p - center).length() - radius;
 }
 
-double boxSDF(Vec3 p, Vec3 center, Vec3 size) {
+float boxSDF(Vec3 p, Vec3 center, Vec3 size) {
     Vec3 d = (p - center).abs() - size;
-    double inside_distance = std::min(std::max(d.x, std::max(d.y, d.z)), 0.0);
-    double outside_distance = length(std::max(d.x, 0.0), std::max(d.y, 0.0), std::max(d.z, 0.0));
+    float inside_distance = std::min(std::max(d.x, std::max(d.y, d.z)), 0.0f);
+    float outside_distance = length(std::max(d.x, 0.0f), std::max(d.y, 0.0f), std::max(d.z, 0.0f));
     return inside_distance + outside_distance;
 }
 
-double mandelbulb1(Vec3 pos) {
+float mandelbulb1(Vec3 pos) {
     Vec3 z = pos;
-    double dr = 1.0;
-    double r = 0.0;
+    float dr = 1.0f;
+    float r = 0.0f;
     for (int i = 0; i < ITERATIONS; i++) {
         r = z.length();
         if (r > MAX_DIST)
             break;
 
-        double theta = std::acos(z.z / r);
+        float theta = std::acos(z.z / r);
         theta *= POWER;
 
-        double phi = std::atan2(z.y, z.x);
+        float phi = std::atan2(z.y, z.x);
         phi *= POWER;
 
-        double zr = std::pow(r, POWER);
-        dr = std::pow(r, POWER - 1.0) * POWER * dr + 1.0;
+        float zr = std::pow(r, POWER);
+        dr = std::pow(r, POWER - 1.0f) * POWER * dr + 1.0f;
 
         z = Vec3(
             std::sin(theta) * std::cos(phi),
@@ -80,10 +80,10 @@ double mandelbulb1(Vec3 pos) {
             * zr
             + pos;
     }
-    return 0.5 * std::log(r) * r / dr;
+    return 0.5f * std::log(r) * r / dr;
 }
 
-double mandelbulb(Vec3 pos) {
+float mandelbulb(Vec3 pos) {
     Vec3 w = pos;
     float m = w.dot(w);
 
@@ -106,7 +106,7 @@ double mandelbulb(Vec3 pos) {
     return 0.25f * std::log(m) * std::sqrt(m) / dz;
 }
 
-double optimMandelbulb(Vec3 pos) {
+float optimMandelbulb(Vec3 pos) {
     Vec3 w = pos;
     float m = w.dot(w);
 
@@ -115,26 +115,26 @@ double optimMandelbulb(Vec3 pos) {
     for (int i = 0; i < 4; i++) {
         float m2 = m * m;
         float m4 = m2 * m2;
-        dz = 8.0 * sqrt(m4 * m2 * m) * dz + 1.0;
+        dz = 8.0f * std::sqrt(m4 * m2 * m) * dz + 1.0f;
 
         float x = w.x; float x2 = x * x; float x4 = x2 * x2;
         float y = w.y; float y2 = y * y; float y4 = y2 * y2;
         float z = w.z; float z2 = z * z; float z4 = z2 * z2;
 
         float k3 = x2 + z2;
-        float k2 = 1. / std::sqrt(k3 * k3 * k3 * k3 * k3 * k3 * k3);
-        float k1 = x4 + y4 + z4 - (6.0 * y2 * z2) - (6.0 * x2 * y2) + (2.0 * z2 * x2);
+        float k2 = 1.0f / std::sqrt(k3 * k3 * k3 * k3 * k3 * k3 * k3);
+        float k1 = x4 + y4 + z4 - (6.0f * y2 * z2) - (6.0f * x2 * y2) + (2.0f * z2 * x2);
         float k4 = x2 - y2 + z2;
 
-        w.x = pos.x + (64.0 * x * y * z) * (x2 - z2) * k4 * (x4 - 6.0 * x2 * z2 + z4) * k1 * k2;
-        w.y = pos.y + -16.0 * y2 * k3 * k4 * k4 + k1 * k1;
-        w.z = pos.z + 
-            -8.0 * y * k4 * 
+        w.x = pos.x + (64.0f * x * y * z) * (x2 - z2) * k4 * (x4 - 6.0f * x2 * z2 + z4) * k1 * k2;
+        w.y = pos.y + -16.0f * y2 * k3 * k4 * k4 + k1 * k1;
+        w.z = pos.z +
+            -8.0f * y * k4 *
             ( // add(sub(add(sub(z21, z22), z23), z24), z25)
                 x4 * x4 - 
-                (28.0 * x4 * x2 * z2) + 
-                (70.0 * x4 * z4) - 
-                (28.0 * x2 * z2 * z4) + 
+                (28.0f * x4 * x2 * z2) +
+                (70.0f * x4 * z4) -
+                (28.0f * x2 * z2 * z4) +
                 z4 * z4
             ) * k1 * k2;
 
@@ -147,13 +147,12 @@ double optimMandelbulb(Vec3 pos) {
     return 0.25f * std::log(m) * std::sqrt(m) / dz;
 }
 
-double sceneSDF(double x, double y, double z) {
+float sceneSDF(float x, float y, float z) {
     /*Vec3 p(x, y, z);
-    double sphere = sphereSDF(p / 1.2, Vec3(0, 0, 0), 1.0) * 1.2;
-    double cube = boxSDF(p, Vec3(0, 0, 0), Vec3(1, 1, 1));
+    float sphere = sphereSDF(p / 1.2f, Vec3(0.0f, 0.0f, 0.0f), 1.0f) * 1.2f;
+    float cube = boxSDF(p, Vec3(0.0f, 0.0f, 0.0f), Vec3(1.0f, 1.0f, 1.0f));
     return intersectSDF(sphere, cube);*/
     return optimMandelbulb(Vec3(x, y, z));
-    //return sphereSDF(Vec3(x, y, z), Vec3(0, 0, 0), 1.0);
 }
 
 Vec3 estimateNormal(Vec3 p) {
@@ -165,23 +164,22 @@ Vec3 estimateNormal(Vec3 p) {
     return normal.normalize();
 }
 
-void ray_march(Vec3 origin, Camera camera, std::vector<unsigned char>& image) {
-    auto [x, y, z] = origin;
-    Vec3 direction = camera.get_ray_direction(x, y);
+void ray_march(int x, int y, Camera camera, std::vector<unsigned char>& image) {
+    Vec3 direction = camera.get_ray_direction(static_cast<float>(x), static_cast<float>(y));
     Vec3 ray_origin = camera.position;
-    double distance = 0.0;
+    float distance = 0.0f;
     for (int i = 0; i < MAX_STEPS; i++) {
         Vec3 p = ray_origin + direction * distance;
-        double dist = sceneSDF(p.x, p.y, p.z);
+        float dist = sceneSDF(p.x, p.y, p.z);
         if (dist < MIN_DIST) {
-            double color[3] = { 255, 255, 255 };
+            float color[3] = { 255.0f, 255.0f, 255.0f };
             // apply lighting
-            color[0] = estimateNormal(p).x * 255;
-            color[1] = estimateNormal(p).y * 255;
-            color[2] = estimateNormal(p).z * 255;
+            color[0] = estimateNormal(p).x * 255.0f;
+            color[1] = estimateNormal(p).y * 255.0f;
+            color[2] = estimateNormal(p).z * 255.0f;
             // clamp and apply color
             for (int j : {0, 1, 2}) {
-                color[j] = std::max(0.0, std::min(255.0, color[j]));
+                color[j] = std::max(0.0f, std::min(255.0f, color[j]));
                 image[(y * WIDTH + x) * 3 + j] = color[j];
             }
             break;
@@ -200,9 +198,9 @@ void ray_march(Vec3 origin, Camera camera, std::vector<unsigned char>& image) {
 int main() {
     std::vector<unsigned char> image(WIDTH * HEIGHT * 3);
 
-    Vec3 camera_position = Vec3(0., 0., 2.);
-    Vec3 look_at = Vec3(0, 0, 0);
-    Vec3 up = Vec3(0, 1, 0);
+    Vec3 camera_position = Vec3(0.0f, 0.0f, 2.0f);
+    Vec3 look_at = Vec3(0.0f, 0.0f, 0.0f);
+    Vec3 up = Vec3(0.0f, 1.0f, 0.0f);
     Camera camera(camera_position, look_at, up);
 
     // Set up timer
@@ -210,7 +208,7 @@ int main() {
 
     for (int y = 0; y < HEIGHT; y++) {
         for (int x = 0; x < WIDTH; x++)  {
-            ray_march(Vec3(x, y, 0), camera, image);
+            ray_march(x, y, camera, image);
         }
     }
 
