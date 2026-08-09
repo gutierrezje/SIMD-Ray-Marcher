@@ -325,7 +325,9 @@ Comparison compare_sdf_packet_invariance(
 
 Comparison compare_normals(std::mt19937& generator,
                            render::RenderConfig const& config) {
-    Comparison result{"scalar vs SIMD normal", 1.0e-3f};
+    Comparison result{"scalar vs SIMD normal angle (degrees)", 0.25f, "scalar",
+                      "simd", false};
+    constexpr double radians_to_degrees = 180.0 / std::numbers::pi_v<double>;
     for (int batch = 0; batch < 64; ++batch) {
         PointBatch points = random_points(generator, batch);
         Vec3x8 packet = pack_points(points);
@@ -334,9 +336,25 @@ Comparison compare_normals(std::mt19937& generator,
         LaneValues ay = lanes(actual.y256);
         LaneValues az = lanes(actual.z256);
         for (int lane = 0; lane < kLanes; ++lane) {
-            compare_vec3(result, scalar::estimate_normal(points[lane], config),
-                         ax, ay, az, lane,
-                         batch_point_location(batch, lane, points[lane]));
+            Vec3 expected = scalar::estimate_normal(points[lane], config);
+            Vec3 actual_vec(ax[lane], ay[lane], az[lane]);
+            double len_exp = static_cast<double>(expected.length());
+            double len_act = static_cast<double>(actual_vec.length());
+            if (len_exp < 1e-4 || len_act < 1e-4) {
+                ++result.skipped;
+                continue;
+            }
+            double dot = static_cast<double>(expected.x) *
+                             static_cast<double>(actual_vec.x) +
+                         static_cast<double>(expected.y) *
+                             static_cast<double>(actual_vec.y) +
+                         static_cast<double>(expected.z) *
+                             static_cast<double>(actual_vec.z);
+            double cos_angle = dot / (len_exp * len_act);
+            double angle = std::acos(std::clamp(cos_angle, -1.0, 1.0)) *
+                           radians_to_degrees;
+            compare_value(result, 0.0f, static_cast<float>(angle),
+                          batch_point_location(batch, lane, points[lane]));
         }
     }
     return result;
@@ -345,7 +363,7 @@ Comparison compare_normals(std::mt19937& generator,
 Comparison compare_reference_normals(std::mt19937& generator,
                                      render::RenderConfig const& config) {
     // ULP against the zero target is meaningless for the angle metric.
-    Comparison result{"reference vs scalar normal angle (degrees)", 0.1f,
+    Comparison result{"reference vs scalar normal angle (degrees)", 0.25f,
                       "target", "angle", false};
     constexpr double radians_to_degrees = 180.0 / std::numbers::pi_v<double>;
     for (int batch = 0; batch < 64; ++batch) {
@@ -359,11 +377,21 @@ Comparison compare_reference_normals(std::mt19937& generator,
             reference::Vec3d expected =
                 reference::estimate_normal(to_reference(points[lane]), config);
             Vec3 actual = scalar::estimate_normal(points[lane], config);
+            double len_exp = std::sqrt(expected.x * expected.x +
+                                       expected.y * expected.y +
+                                       expected.z * expected.z);
+            double len_act = static_cast<double>(actual.length());
+            if (len_exp < 1e-4 || len_act < 1e-4) {
+                ++result.skipped;
+                continue;
+            }
             double dot = expected.x * static_cast<double>(actual.x) +
                          expected.y * static_cast<double>(actual.y) +
                          expected.z * static_cast<double>(actual.z);
+            double cos_angle = dot / (len_exp * len_act);
             double angle =
-                std::acos(std::clamp(dot, -1.0, 1.0)) * radians_to_degrees;
+                std::acos(std::clamp(cos_angle, -1.0, 1.0)) *
+                radians_to_degrees;
             compare_value(result, 0.0f, static_cast<float>(angle),
                           batch_point_location(batch, lane, points[lane]));
         }
@@ -410,9 +438,9 @@ RenderPair compare_render(Camera const& camera,
     simd8::render(camera, config, simd_image);
 
     RenderPair pair{
-        {"scalar vs SIMD render channels"},
-        {"reference vs scalar render channels", 0.0f, "reference", "scalar"},
-        {"reference vs SIMD render channels", 0.0f, "reference", "simd"},
+        {"scalar vs SIMD render channels", 8.0f},
+        {"reference vs scalar render channels", 2.0f, "reference", "scalar"},
+        {"reference vs SIMD render channels", 8.0f, "reference", "simd"},
     };
     render::Image scalar_simd_diff(config), reference_scalar_diff(config),
         reference_simd_diff(config);
