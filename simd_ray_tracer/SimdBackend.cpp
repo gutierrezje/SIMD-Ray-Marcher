@@ -25,17 +25,18 @@ __m256 optim_mandelbulb(Vec3x8& p)
     __m256 m = w.dot(w);
 
     __m256 dz = _mm256_set1_ps(1.0f);
-    __m256 apply_mask = _mm256_set1_ps(-std::numeric_limits<float>::signaling_NaN());
-    __m256 break_mask = _mm256_set1_ps(0.0f);
+    __m256 active_mask = _mm256_cmp_ps(
+        _mm256_setzero_ps(), _mm256_setzero_ps(), _CMP_EQ_OQ);
 
     for (int i = 0; i < 4; i++) {
         __m256 m2 = _mm256_mul_ps(m, m);
         __m256 m4 = _mm256_mul_ps(m2, m2);
         // dz = 8.0 * sqrt(m4 * m2 * m) * dz + 1.0;
-        __m256 temp_dz = _mm256_mul_ps(m4, _mm256_mul_ps(m2, m));
-        temp_dz = _mm256_sqrt_ps(temp_dz);
-        temp_dz = _mm256_mul_ps(_mm256_set1_ps(8.0f), _mm256_mul_ps(temp_dz, dz));
-        dz = _mm256_add_ps(temp_dz, _mm256_set1_ps(1.0f));
+        __m256 next_dz = _mm256_mul_ps(m4, _mm256_mul_ps(m2, m));
+        next_dz = _mm256_sqrt_ps(next_dz);
+        next_dz = _mm256_mul_ps(
+            _mm256_set1_ps(8.0f), _mm256_mul_ps(next_dz, dz));
+        next_dz = _mm256_add_ps(next_dz, _mm256_set1_ps(1.0f));
 
         __m256 x = w.x256;
         __m256 x2 = _mm256_mul_ps(x, x);
@@ -66,10 +67,11 @@ __m256 optim_mandelbulb(Vec3x8& p)
 
         __m256 k4 = _mm256_add_ps(_mm256_sub_ps(x2, y2), z2);
 
-        w.x256 = _mm256_mul_ps(_mm256_set1_ps(64.f), _mm256_mul_ps(x, _mm256_mul_ps(y, z)));
-        w.x256 = _mm256_mul_ps(w.x256, _mm256_mul_ps(_mm256_sub_ps(x2, z2), k4));
-        w.x256 = _mm256_mul_ps(
-            w.x256,
+        Vec3x8 next_w;
+        next_w.x256 = _mm256_mul_ps(_mm256_set1_ps(64.f), _mm256_mul_ps(x, _mm256_mul_ps(y, z)));
+        next_w.x256 = _mm256_mul_ps(next_w.x256, _mm256_mul_ps(_mm256_sub_ps(x2, z2), k4));
+        next_w.x256 = _mm256_mul_ps(
+            next_w.x256,
             _mm256_add_ps(
                 _mm256_sub_ps(
                     x4,
@@ -79,17 +81,17 @@ __m256 optim_mandelbulb(Vec3x8& p)
                             x2,
                             z2))),
                 z4));
-        w.x256 = _mm256_mul_ps(w.x256, _mm256_mul_ps(k1, k2));
-        w.x256 = _mm256_add_ps(w.x256, p.x256);
+        next_w.x256 = _mm256_mul_ps(next_w.x256, _mm256_mul_ps(k1, k2));
+        next_w.x256 = _mm256_add_ps(next_w.x256, p.x256);
 
-        w.y256 = _mm256_mul_ps(
+        next_w.y256 = _mm256_mul_ps(
             _mm256_mul_ps(
                 _mm256_set1_ps(-16.f),
                 _mm256_mul_ps(y2, k3)),
             _mm256_mul_ps(k4, k4));
-        w.y256 = _mm256_add_ps(w.y256, p.y256);
-        w.y256 = _mm256_add_ps(
-            w.y256,
+        next_w.y256 = _mm256_add_ps(next_w.y256, p.y256);
+        next_w.y256 = _mm256_add_ps(
+            next_w.y256,
             _mm256_mul_ps(k1, k1));
 
         __m256 wz1 = _mm256_mul_ps(
@@ -125,17 +127,23 @@ __m256 optim_mandelbulb(Vec3x8& p)
                 wz24),
             wz25);
         __m256 wz3 = _mm256_mul_ps(k1, k2);
-        w.z256 = _mm256_add_ps(
+        next_w.z256 = _mm256_add_ps(
             p.z256,
             _mm256_mul_ps(
                 wz1,
                 _mm256_mul_ps(wz2, wz3)));
 
-        m = w.dotWithMask(w, apply_mask, m);
-        apply_mask = _mm256_cmp_ps(m, _mm256_set1_ps(256.0f), _CMP_LT_OS);
+        __m256 next_m = next_w.dot(next_w);
+        w.x256 = _mm256_blendv_ps(w.x256, next_w.x256, active_mask);
+        w.y256 = _mm256_blendv_ps(w.y256, next_w.y256, active_mask);
+        w.z256 = _mm256_blendv_ps(w.z256, next_w.z256, active_mask);
+        dz = _mm256_blendv_ps(dz, next_dz, active_mask);
+        m = _mm256_blendv_ps(m, next_m, active_mask);
 
-        break_mask = _mm256_cmp_ps(m, _mm256_set1_ps(256.0f), _CMP_GT_OS);
-        if (!_mm256_testz_ps(break_mask, break_mask)) {
+        __m256 escaped_mask = _mm256_cmp_ps(
+            next_m, _mm256_set1_ps(256.0f), _CMP_GT_OS);
+        active_mask = _mm256_andnot_ps(escaped_mask, active_mask);
+        if (_mm256_testz_ps(active_mask, active_mask)) {
             break;
         }
     }
