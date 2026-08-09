@@ -1,11 +1,10 @@
 #include <chrono>
-#include <cmath>
 #include <iostream>
-#include <vector>
 
 #include "simd_compat.h"
 
 #include "Camera.h"
+#include "RenderTypes.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h" // Or other image library
@@ -17,14 +16,9 @@
 #define _mm256_log_ps(x) log256_ps(x)
 #endif
 
-// Mandelbulb parameters
-constexpr int ITERATIONS = 10;
-constexpr float POWER = 8.0f;
-
-// Ray marching parameters
-constexpr float MIN_DIST = 0.001f;
-constexpr float MAX_DIST = 100.0f;
-constexpr int MAX_STEPS = 100;
+namespace {
+constexpr const render::RenderConfig& kConfig = render::kDefaultRenderConfig;
+}
 
 bool hasNan(__m256 v)
 {
@@ -181,7 +175,7 @@ __m256 sceneSDF(Vec3x8& p)
 
 Vec3x8 estimateNormal(Vec3x8& p)
 {
-    const __m256 eps = _mm256_set1_ps(MIN_DIST);
+    const __m256 eps = _mm256_set1_ps(kConfig.min_distance);
 
     Vec3x8 px = p + Vec3x8(eps, _mm256_setzero_ps(), _mm256_setzero_ps());
     Vec3x8 nx = p - Vec3x8(eps, _mm256_setzero_ps(), _mm256_setzero_ps());
@@ -209,7 +203,7 @@ Vec3x8 estimateNormal(Vec3x8& p)
 }
 
 // Simd helper function to set Vec3x8 color to image
-void setColorToImage(std::vector<unsigned char>& image, Vec3x8& color, __m256 xs, __m256 ys)
+void setColorToImage(render::Image& image, Vec3x8& color, __m256 xs, __m256 ys)
 {
 #ifdef __GNUC__
     __m128 xs_lo = _mm256_extractf128_ps(xs, 0);
@@ -246,47 +240,47 @@ void setColorToImage(std::vector<unsigned char>& image, Vec3x8& color, __m256 xs
     _mm_storeu_ps(col_z_arr_hi, color_z_hi);
 
     for (int i = 0; i < 4; ++i) {
-        int index = ((int)ys_arr_lo[i] * WIDTH + (int)xs_arr_lo[i]) * 3;
-        if (index < WIDTH * HEIGHT * 3) {
+        int index = ((int)ys_arr_lo[i] * kConfig.width + (int)xs_arr_lo[i]) * render::kColorChannels;
+        if (index < kConfig.width * kConfig.height * render::kColorChannels) {
             image[index] = static_cast<unsigned char>(col_x_arr_lo[i]);
         }
-        if (index + 1 < WIDTH * HEIGHT * 3) {
+        if (index + 1 < kConfig.width * kConfig.height * render::kColorChannels) {
             image[index + 1] = static_cast<unsigned char>(col_y_arr_lo[i]);
         }
-        if (index + 2 < WIDTH * HEIGHT * 3) {
+        if (index + 2 < kConfig.width * kConfig.height * render::kColorChannels) {
             image[index + 2] = static_cast<unsigned char>(col_z_arr_lo[i]);
         }
     }
     for (int i = 0; i < 4; ++i) {
-        int index = ((int)ys_arr_hi[i] * WIDTH + (int)xs_arr_hi[i]) * 3;
-        if (index < WIDTH * HEIGHT * 3) {
+        int index = ((int)ys_arr_hi[i] * kConfig.width + (int)xs_arr_hi[i]) * render::kColorChannels;
+        if (index < kConfig.width * kConfig.height * render::kColorChannels) {
             image[index] = static_cast<unsigned char>(col_x_arr_hi[i]);
         }
-        if (index + 1 < WIDTH * HEIGHT * 3) {
+        if (index + 1 < kConfig.width * kConfig.height * render::kColorChannels) {
             image[index + 1] = static_cast<unsigned char>(col_y_arr_hi[i]);
         }
-        if (index + 2 < WIDTH * HEIGHT * 3) {
+        if (index + 2 < kConfig.width * kConfig.height * render::kColorChannels) {
             image[index + 2] = static_cast<unsigned char>(col_z_arr_hi[i]);
         }
     }
 
 #else
     for (int i = 0; i < 8; i++) {
-        int index = ((int)ys.m256_f32[i] * WIDTH + (int)xs.m256_f32[i]) * 3;
-        if (index < WIDTH * HEIGHT * 3) {
+        int index = ((int)ys.m256_f32[i] * kConfig.width + (int)xs.m256_f32[i]) * render::kColorChannels;
+        if (index < kConfig.width * kConfig.height * render::kColorChannels) {
             image[index] = static_cast<unsigned char>(color.x256.m256_f32[i]);
         }
-        if (index + 1 < WIDTH * HEIGHT * 3) {
+        if (index + 1 < kConfig.width * kConfig.height * render::kColorChannels) {
             image[index + 1] = static_cast<unsigned char>(color.y256.m256_f32[i]);
         }
-        if (index + 2 < WIDTH * HEIGHT * 3) {
+        if (index + 2 < kConfig.width * kConfig.height * render::kColorChannels) {
             image[index + 2] = static_cast<unsigned char>(color.z256.m256_f32[i]);
         }
     }
 #endif
 }
 
-void ray_march(Vec3x8 origins, Camera& camera, std::vector<unsigned char>& image)
+void ray_march(Vec3x8 origins, Camera& camera, render::Image& image)
 {
     auto [xs, ys, zs] = origins;
     Vec3x8 directions = camera.get_ray_directions(xs, ys);
@@ -296,12 +290,12 @@ void ray_march(Vec3x8 origins, Camera& camera, std::vector<unsigned char>& image
     Vec3x8 color(0.0f);
     __m256 activeMask = _mm256_set1_ps(-std::numeric_limits<float>::signaling_NaN());
 
-    for (int i = 0; i < MAX_STEPS; i++) {
+    for (int i = 0; i < kConfig.max_steps; i++) {
         Vec3x8 p = ray_origins + directions * distances;
         __m256 dists = sceneSDF(p);
 
         // Check for rays that have reached the minimum distance
-        __m256 mask = _mm256_cmp_ps(dists, _mm256_set1_ps(MIN_DIST), _CMP_LT_OS);
+        __m256 mask = _mm256_cmp_ps(dists, _mm256_set1_ps(kConfig.min_distance), _CMP_LT_OS);
         // disable rays that have reached the minimum distance before
         mask = _mm256_and_ps(mask, activeMask);
 
@@ -314,13 +308,13 @@ void ray_march(Vec3x8 origins, Camera& camera, std::vector<unsigned char>& image
 
         // update distances
         // invert mask
-        __m256 maskInv = _mm256_cmp_ps(dists, _mm256_set1_ps(MIN_DIST), _CMP_GT_OS);
+        __m256 maskInv = _mm256_cmp_ps(dists, _mm256_set1_ps(kConfig.min_distance), _CMP_GT_OS);
         maskInv = _mm256_and_ps(maskInv, activeMask);
         __m256 newDistances = _mm256_add_ps(distances, dists);
         distances = _mm256_blendv_ps(distances, newDistances, maskInv);
 
         // Check for rays that have reached the maximum distance
-        __m256 mask2 = _mm256_cmp_ps(distances, _mm256_set1_ps(MAX_DIST), _CMP_GT_OS);
+        __m256 mask2 = _mm256_cmp_ps(distances, _mm256_set1_ps(kConfig.max_distance), _CMP_GT_OS);
         mask2 = _mm256_and_ps(mask2, activeMask);
         if (!_mm256_testz_ps(mask2, mask2)) {
             color.multiplyWithMask(Vec3x8(0.0f), mask2);
@@ -345,7 +339,7 @@ void ray_march(Vec3x8 origins, Camera& camera, std::vector<unsigned char>& image
 
 int main()
 {
-    std::vector<unsigned char> image(WIDTH * HEIGHT * 3);
+    render::Image image(kConfig);
 
     Vec3 camera_position = Vec3(0.0f, 0.0f, 2.0f);
     Vec3 look_at = Vec3(0.0f, 0.0f, 0.0f);
@@ -354,8 +348,8 @@ int main()
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    for (int y = 0; y < HEIGHT; y += 1) {
-        for (int x = 0; x < WIDTH; x += 8) {
+    for (int y = 0; y < kConfig.height; y += 1) {
+        for (int x = 0; x < kConfig.width; x += 8) {
             __m256 us = _mm256_setr_ps(x, x + 1, x + 2, x + 3, x + 4, x + 5, x + 6, x + 7);
             __m256 vs = _mm256_set1_ps(y);
             ray_march(Vec3x8(us, vs, _mm256_set1_ps(0.0f)), camera, image);
@@ -365,7 +359,8 @@ int main()
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
 
-    stbi_write_png("output.png", WIDTH, HEIGHT, 3, image.data(), WIDTH * 3);
+    stbi_write_png("output.png", kConfig.width, kConfig.height,
+                   render::kColorChannels, image.data(), image.row_stride());
 
     std::cout << "Elapsed time: " << elapsed.count() << " s" << std::endl;
     return 0;

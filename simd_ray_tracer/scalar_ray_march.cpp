@@ -3,23 +3,18 @@
 
 #include <iostream>
 #include <cmath>
-#include <vector>
 
 #include "Camera.h"
+#include "RenderTypes.h"
 
 #include <chrono>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h" // Or other image library
 
-// Mandelbulb parameters
-constexpr int ITERATIONS = 10;
-constexpr float POWER = 8.0f;
-
-// Ray marching parameters
-constexpr float MIN_DIST = 0.001f;
-constexpr float MAX_DIST = 100.0f;
-constexpr int MAX_STEPS = 100;
+namespace {
+constexpr const render::RenderConfig& kConfig = render::kDefaultRenderConfig;
+}
 
 // Helper functions
 float length(float x, float y, float z) {
@@ -58,19 +53,19 @@ float mandelbulb1(Vec3 pos) {
     Vec3 z = pos;
     float dr = 1.0f;
     float r = 0.0f;
-    for (int i = 0; i < ITERATIONS; i++) {
+    for (int i = 0; i < kConfig.mandelbulb_iterations; i++) {
         r = z.length();
-        if (r > MAX_DIST)
+        if (r > kConfig.max_distance)
             break;
 
         float theta = std::acos(z.z / r);
-        theta *= POWER;
+        theta *= kConfig.power;
 
         float phi = std::atan2(z.y, z.x);
-        phi *= POWER;
+        phi *= kConfig.power;
 
-        float zr = std::pow(r, POWER);
-        dr = std::pow(r, POWER - 1.0f) * POWER * dr + 1.0f;
+        float zr = std::pow(r, kConfig.power);
+        dr = std::pow(r, kConfig.power - 1.0f) * kConfig.power * dr + 1.0f;
 
         z = Vec3(
             std::sin(theta) * std::cos(phi),
@@ -157,21 +152,21 @@ float sceneSDF(float x, float y, float z) {
 
 Vec3 estimateNormal(Vec3 p) {
     Vec3 normal(
-        sceneSDF(p.x + MIN_DIST, p.y, p.z) - sceneSDF(p.x - MIN_DIST, p.y, p.z),
-        sceneSDF(p.x, p.y + MIN_DIST, p.z) - sceneSDF(p.x, p.y - MIN_DIST, p.z),
-        sceneSDF(p.x, p.y, p.z + MIN_DIST) - sceneSDF(p.x, p.y, p.z - MIN_DIST)
+        sceneSDF(p.x + kConfig.min_distance, p.y, p.z) - sceneSDF(p.x - kConfig.min_distance, p.y, p.z),
+        sceneSDF(p.x, p.y + kConfig.min_distance, p.z) - sceneSDF(p.x, p.y - kConfig.min_distance, p.z),
+        sceneSDF(p.x, p.y, p.z + kConfig.min_distance) - sceneSDF(p.x, p.y, p.z - kConfig.min_distance)
     );
     return normal.normalize();
 }
 
-void ray_march(int x, int y, Camera camera, std::vector<unsigned char>& image) {
+void ray_march(int x, int y, Camera camera, render::Image& image) {
     Vec3 direction = camera.get_ray_direction(static_cast<float>(x), static_cast<float>(y));
     Vec3 ray_origin = camera.position;
     float distance = 0.0f;
-    for (int i = 0; i < MAX_STEPS; i++) {
+    for (int i = 0; i < kConfig.max_steps; i++) {
         Vec3 p = ray_origin + direction * distance;
         float dist = sceneSDF(p.x, p.y, p.z);
-        if (dist < MIN_DIST) {
+        if (dist < kConfig.min_distance) {
             float color[3] = { 255.0f, 255.0f, 255.0f };
             // apply lighting
             color[0] = estimateNormal(p).x * 255.0f;
@@ -180,15 +175,15 @@ void ray_march(int x, int y, Camera camera, std::vector<unsigned char>& image) {
             // clamp and apply color
             for (int j : {0, 1, 2}) {
                 color[j] = std::max(0.0f, std::min(255.0f, color[j]));
-                image[(y * WIDTH + x) * 3 + j] = color[j];
+                image[(y * kConfig.width + x) * render::kColorChannels + j] = color[j];
             }
             break;
         }
         distance += dist;
-        if (distance > MAX_DIST) {
-            image[(y * WIDTH + x) * 3] = 0;
-            image[(y * WIDTH + x) * 3 + 1] = 0;
-            image[(y * WIDTH + x) * 3 + 2] = 0;
+        if (distance > kConfig.max_distance) {
+            image[(y * kConfig.width + x) * render::kColorChannels] = 0;
+            image[(y * kConfig.width + x) * render::kColorChannels + 1] = 0;
+            image[(y * kConfig.width + x) * render::kColorChannels + 2] = 0;
             break;
         }
     }
@@ -196,7 +191,7 @@ void ray_march(int x, int y, Camera camera, std::vector<unsigned char>& image) {
 }
 
 int main() {
-    std::vector<unsigned char> image(WIDTH * HEIGHT * 3);
+    render::Image image(kConfig);
 
     Vec3 camera_position = Vec3(0.0f, 0.0f, 2.0f);
     Vec3 look_at = Vec3(0.0f, 0.0f, 0.0f);
@@ -206,8 +201,8 @@ int main() {
     // Set up timer
     auto start = std::chrono::high_resolution_clock::now();
 
-    for (int y = 0; y < HEIGHT; y++) {
-        for (int x = 0; x < WIDTH; x++)  {
+    for (int y = 0; y < kConfig.height; y++) {
+        for (int x = 0; x < kConfig.width; x++)  {
             ray_march(x, y, camera, image);
         }
     }
@@ -216,6 +211,7 @@ int main() {
     std::chrono::duration<double> elapsed = end - start;
     std::cout << "Elapsed time: " << elapsed.count() << " s" << std::endl;
 
-    stbi_write_png("output.png", WIDTH, HEIGHT, 3, image.data(), WIDTH * 3);
+    stbi_write_png("output.png", kConfig.width, kConfig.height,
+                   render::kColorChannels, image.data(), image.row_stride());
     return 0;
 }

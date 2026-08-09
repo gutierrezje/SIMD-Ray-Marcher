@@ -14,8 +14,8 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(simde)
 
 # Add source to this project's executable.
-add_executable (simd_ray_march "simd_ray_march.cpp"   "Camera.h" "Vec3.h" "Vec3.cpp" "Camera.cpp" "Vec3x8.h" "Vec3x8.cpp")
-add_executable (scalar_ray_march "scalar_ray_march.cpp"   "Camera.h" "Vec3.h" "Vec3.cpp" "Camera.cpp" "Vec3x8.h" "Vec3x8.cpp")
+add_executable (simd_ray_march "simd_ray_march.cpp"   "Camera.h" "RenderConfig.h" "RenderTypes.h" "Vec3.h" "Vec3.cpp" "Camera.cpp" "Vec3x8.h" "Vec3x8.cpp")
+add_executable (scalar_ray_march "scalar_ray_march.cpp"   "Camera.h" "RenderConfig.h" "RenderTypes.h" "Vec3.h" "Vec3.cpp" "Camera.cpp" "Vec3x8.h" "Vec3x8.cpp")
 
 set(SIMD_RAY_MARCHER_X86 FALSE)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64|i[3-6]86)$")
