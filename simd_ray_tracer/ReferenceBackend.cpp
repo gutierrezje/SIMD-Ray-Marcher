@@ -1,9 +1,9 @@
+#include "ReferenceBackend.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <numbers>
-
-#include "ReferenceBackend.h"
 
 namespace reference {
 
@@ -37,7 +37,7 @@ Vec3d from_float(Vec3 value) {
           static_cast<double>(value.z)};
 }
 
-render::Color shade(Vec3d position, render::RenderConfig const &config) {
+render::Color shade(Vec3d position, render::RenderConfig const& config) {
   Vec3d normal = estimate_normal(position, config);
   std::array<double, render::kColorChannels> components{
       normal.x * 255.0,
@@ -52,10 +52,10 @@ render::Color shade(Vec3d position, render::RenderConfig const &config) {
   return color;
 }
 
-} // namespace
+}  // namespace
 
-Vec3d ray_direction(Camera const &camera, double x, double y,
-                    render::RenderConfig const &config) {
+Vec3d ray_direction(Camera const& camera, double x, double y,
+                    render::RenderConfig const& config) {
   double width = static_cast<double>(config.width);
   double height = static_cast<double>(config.height);
   double aspect_ratio = width / height;
@@ -75,7 +75,7 @@ Vec3d ray_direction(Camera const &camera, double x, double y,
 // is part of the result because the estimate is authoritative only outside the
 // bounded set.
 // https://iquilezles.org/articles/mandelbulb/
-DistanceSample sample_sdf(Vec3d position, render::RenderConfig const &config) {
+DistanceSample sample_sdf(Vec3d position, render::RenderConfig const& config) {
   Vec3d z = position;
   double derivative = 1.0;
   double radius = 0.0;
@@ -116,11 +116,11 @@ DistanceSample sample_sdf(Vec3d position, render::RenderConfig const &config) {
           config.mandelbulb_iterations};
 }
 
-double scene_sdf(Vec3d position, render::RenderConfig const &config) {
+double scene_sdf(Vec3d position, render::RenderConfig const& config) {
   return sample_sdf(position, config).distance;
 }
 
-Vec3d estimate_normal(Vec3d position, render::RenderConfig const &config) {
+Vec3d estimate_normal(Vec3d position, render::RenderConfig const& config) {
   double epsilon = static_cast<double>(config.min_distance);
   Vec3d dx{epsilon, 0.0, 0.0};
   Vec3d dy{0.0, epsilon, 0.0};
@@ -133,8 +133,8 @@ Vec3d estimate_normal(Vec3d position, render::RenderConfig const &config) {
       .normalize();
 }
 
-render::Color trace_ray(Camera const &camera, int x, int y,
-                        render::RenderConfig const &config) {
+render::Color trace_ray(Camera const& camera, int x, int y,
+                        render::RenderConfig const& config) {
   Vec3d direction = ray_direction(camera, static_cast<double>(x),
                                   static_cast<double>(y), config);
   Vec3d origin = from_float(camera.position);
@@ -156,8 +156,8 @@ render::Color trace_ray(Camera const &camera, int x, int y,
   return {};
 }
 
-void render(Camera const &camera, render::RenderConfig const &config,
-            render::Image &image) {
+void render(Camera const& camera, render::RenderConfig const& config,
+            render::Image& image) {
   for (int y = 0; y < config.height; ++y) {
     for (int x = 0; x < config.width; ++x) {
       render::Color color = trace_ray(camera, x, y, config);
@@ -169,4 +169,4 @@ void render(Camera const &camera, render::RenderConfig const &config,
   }
 }
 
-} // namespace reference
+}  // namespace reference

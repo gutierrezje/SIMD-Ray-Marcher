@@ -7,9 +7,9 @@
 namespace simd8 {
 
 struct MarchStep {
-    Vec3x8 position;
-    __m256 distance;
-    __m256 sdf;
+  Vec3x8 position;
+  __m256 distance;
+  __m256 sdf;
 };
 
 // These stages are public so the correctness harness can compare scalar and
@@ -31,4 +31,4 @@ Vec3x8 trace_ray_packet(Camera const& camera, __m256 xs, __m256 ys,
 void render(Camera const& camera, render::RenderConfig const& config,
             render::Image& image);
 
-} // namespace simd8
+}  // namespace simd8
