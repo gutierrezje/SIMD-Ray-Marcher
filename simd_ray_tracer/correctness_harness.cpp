@@ -275,21 +275,23 @@ Comparison compare_reference_sdf(std::mt19937& generator,
                 continue;
             }
             compare_value(result, static_cast<float>(expected.distance),
-                          scalar::scene_sdf(points[lane]),
+                          scalar::scene_sdf(points[lane], config),
                           batch_point_location(batch, lane, points[lane]));
         }
     }
     return result;
 }
 
-Comparison compare_sdf(std::mt19937& generator) {
-    Comparison result{"scalar vs SIMD SDF", 1.0e-5f};
+Comparison compare_sdf(std::mt19937& generator,
+                       render::RenderConfig const& config,
+                       std::string name) {
+    Comparison result{std::move(name), 1.0e-5f};
     for (int batch = 0; batch < 512; ++batch) {
         PointBatch points = random_points(generator, batch);
         Vec3x8 packet = pack_points(points);
-        LaneValues actual = lanes(simd8::scene_sdf(packet));
+        LaneValues actual = lanes(simd8::scene_sdf(packet, config));
         for (int lane = 0; lane < kLanes; ++lane) {
-            compare_value(result, scalar::scene_sdf(points[lane]),
+            compare_value(result, scalar::scene_sdf(points[lane], config),
                           actual[lane],
                           batch_point_location(batch, lane, points[lane]));
         }
@@ -297,7 +299,8 @@ Comparison compare_sdf(std::mt19937& generator) {
     return result;
 }
 
-Comparison compare_sdf_packet_invariance() {
+Comparison compare_sdf_packet_invariance(
+    render::RenderConfig const& config) {
     Comparison result{"SIMD SDF packet invariance", 0.0f, "uniform_packet",
                       "mixed_packet"};
     Vec3 const target(0.086513f, -0.295331f, -0.983393f);
@@ -306,14 +309,14 @@ Comparison compare_sdf_packet_invariance() {
     PointBatch uniform_points{};
     uniform_points.fill(target);
     Vec3x8 uniform_packet = pack_points(uniform_points);
-    LaneValues expected = lanes(simd8::scene_sdf(uniform_packet));
+    LaneValues expected = lanes(simd8::scene_sdf(uniform_packet, config));
 
     for (int lane = 0; lane < kLanes; ++lane) {
         PointBatch mixed_points{};
         mixed_points.fill(escaped_companion);
         mixed_points[lane] = target;
         Vec3x8 mixed_packet = pack_points(mixed_points);
-        LaneValues actual = lanes(simd8::scene_sdf(mixed_packet));
+        LaneValues actual = lanes(simd8::scene_sdf(mixed_packet, config));
         compare_value(result, expected[lane], actual[lane],
                       batch_point_location(0, lane, target));
     }
@@ -536,6 +539,8 @@ int main(int argc, char* argv[]) {
     std::mt19937 generator(kDefaultSeed);
     render::RenderConfig four_iteration_config = ray_config;
     four_iteration_config.mandelbulb_iterations = 4;
+    render::RenderConfig alternate_escape_config = ray_config;
+    alternate_escape_config.mandelbulb_escape_radius = 8.0f;
     std::vector<Comparison> results;
     results.push_back(compare_camera(camera, ray_config));
     results.push_back(compare_reference_sdf(
@@ -545,9 +550,18 @@ int main(int argc, char* argv[]) {
     results.push_back(compare_reference_sdf(
         generator, ray_config,
         "reference vs scalar SDF (configured iterations)"));
-    results.push_back(compare_sdf_packet_invariance());
     generator.seed(kDefaultSeed);
-    results.push_back(compare_sdf(generator));
+    results.push_back(compare_reference_sdf(
+        generator, alternate_escape_config,
+        "reference vs scalar SDF (configured escape radius)"));
+    results.push_back(compare_sdf_packet_invariance(ray_config));
+    generator.seed(kDefaultSeed);
+    results.push_back(compare_sdf(generator, ray_config,
+                                  "scalar vs SIMD SDF"));
+    generator.seed(kDefaultSeed);
+    results.push_back(compare_sdf(
+        generator, alternate_escape_config,
+        "scalar vs SIMD SDF (configured escape radius)"));
     generator.seed(kDefaultSeed);
     results.push_back(compare_reference_normals(generator, ray_config));
     generator.seed(kDefaultSeed);

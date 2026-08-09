@@ -19,16 +19,21 @@ bool has_nan(__m256 v)
     return !_mm256_testz_ps(mask, mask);
 }
 
-__m256 optim_mandelbulb(Vec3x8& p)
+__m256 optim_mandelbulb(Vec3x8& p,
+                        render::RenderConfig const& config)
 {
     Vec3x8 w(p.x256, p.y256, p.z256);
     __m256 m = w.dot(w);
 
     __m256 dz = _mm256_set1_ps(1.0f);
+    const __m256 escape_threshold = _mm256_set1_ps(
+        config.mandelbulb_escape_radius * config.mandelbulb_escape_radius);
     __m256 active_mask = _mm256_cmp_ps(
         _mm256_setzero_ps(), _mm256_setzero_ps(), _CMP_EQ_OQ);
 
-    for (int i = 0; i < 4; i++) {
+    for (int iteration = 0;
+         iteration < config.mandelbulb_iterations;
+         iteration += 1) {
         __m256 m2 = _mm256_mul_ps(m, m);
         __m256 m4 = _mm256_mul_ps(m2, m2);
         // dz = 8.0 * sqrt(m4 * m2 * m) * dz + 1.0;
@@ -141,7 +146,7 @@ __m256 optim_mandelbulb(Vec3x8& p)
         m = _mm256_blendv_ps(m, next_m, active_mask);
 
         __m256 escaped_mask = _mm256_cmp_ps(
-            next_m, _mm256_set1_ps(256.0f), _CMP_GT_OS);
+            next_m, escape_threshold, _CMP_GT_OS);
         active_mask = _mm256_andnot_ps(escaped_mask, active_mask);
         if (_mm256_testz_ps(active_mask, active_mask)) {
             break;
@@ -268,8 +273,8 @@ Vec3x8 ray_directions(Camera const& camera, __m256 x, __m256 y,
     return ray_directions.normalize();
 }
 
-__m256 scene_sdf(Vec3x8& p) {
-    return optim_mandelbulb(p);
+__m256 scene_sdf(Vec3x8& p, render::RenderConfig const& config) {
+    return optim_mandelbulb(p, config);
 }
 
 Vec3x8 estimate_normal(Vec3x8& p, render::RenderConfig const& config) {
@@ -284,12 +289,12 @@ Vec3x8 estimate_normal(Vec3x8& p, render::RenderConfig const& config) {
     Vec3x8 pz = p + Vec3x8(_mm256_setzero_ps(), _mm256_setzero_ps(), eps);
     Vec3x8 nz = p - Vec3x8(_mm256_setzero_ps(), _mm256_setzero_ps(), eps);
 
-    __m256 sdf_px = scene_sdf(px);
-    __m256 sdf_nx = scene_sdf(nx);
-    __m256 sdf_py = scene_sdf(py);
-    __m256 sdf_ny = scene_sdf(ny);
-    __m256 sdf_pz = scene_sdf(pz);
-    __m256 sdf_nz = scene_sdf(nz);
+    __m256 sdf_px = scene_sdf(px, config);
+    __m256 sdf_nx = scene_sdf(nx, config);
+    __m256 sdf_py = scene_sdf(py, config);
+    __m256 sdf_ny = scene_sdf(ny, config);
+    __m256 sdf_pz = scene_sdf(pz, config);
+    __m256 sdf_nz = scene_sdf(nz, config);
 
     __m256 nx_grad = _mm256_sub_ps(sdf_px, sdf_nx);
     __m256 ny_grad = _mm256_sub_ps(sdf_py, sdf_ny);
@@ -299,9 +304,9 @@ Vec3x8 estimate_normal(Vec3x8& p, render::RenderConfig const& config) {
 }
 
 MarchStep march_step(Vec3x8 const& origins, Vec3x8 const& directions,
-                     __m256 distance) {
+                     __m256 distance, render::RenderConfig const& config) {
     Vec3x8 position = origins + directions * distance;
-    return {position, distance, scene_sdf(position)};
+    return {position, distance, scene_sdf(position, config)};
 }
 
 __m256 advance_distance(MarchStep const& step, __m256 active_mask,
@@ -350,7 +355,7 @@ Vec3x8 trace_ray_packet(Camera const& camera, __m256 xs, __m256 ys,
     Vec3x8 color(0.0f);
 
     for (int step_count = 0; step_count < config.max_steps; ++step_count) {
-        MarchStep step = march_step(ray_origins, directions, distances);
+        MarchStep step = march_step(ray_origins, directions, distances, config);
 
         __m256 hits = _mm256_and_ps(hit_mask(step, config), active_mask);
         if (!_mm256_testz_ps(hits, hits)) {

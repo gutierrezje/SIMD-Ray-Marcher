@@ -87,13 +87,17 @@ float mandelbulb(Vec3 pos) {
     return 0.25f * std::log(m) * std::sqrt(m) / dz;
 }
 
-float optim_mandelbulb(Vec3 pos) {
+float optim_mandelbulb(Vec3 pos, render::RenderConfig const& config) {
     Vec3 w = pos;
     float m = w.dot(w);
 
     float dz = 1.0f;
+    const float escape_threshold = config.mandelbulb_escape_radius *
+                                   config.mandelbulb_escape_radius;
 
-    for (int i = 0; i < 4; i++) {
+    for (int iteration = 0;
+         iteration < config.mandelbulb_iterations;
+         iteration += 1) {
         float m2 = m * m;
         float m4 = m2 * m2;
         dz = 8.0f * std::sqrt(m4 * m2 * m) * dz + 1.0f;
@@ -120,7 +124,7 @@ float optim_mandelbulb(Vec3 pos) {
             ) * k1 * k2;
 
         m = w.dot(w);
-        if (m > 256.0f)
+        if (m > escape_threshold)
             break;
     }
 
@@ -138,22 +142,28 @@ Vec3 ray_direction(Camera const& camera, float x, float y,
     return (camera.forward + camera.right * x_adjustment + camera.up * y_adjustment).normalize();
 }
 
-float scene_sdf(Vec3 p) {
-    return optim_mandelbulb(p);
+float scene_sdf(Vec3 p, render::RenderConfig const& config) {
+    return optim_mandelbulb(p, config);
 }
 
 Vec3 estimate_normal(Vec3 p, render::RenderConfig const& config) {
+    Vec3 px(p.x + config.min_distance, p.y, p.z);
+    Vec3 nx(p.x - config.min_distance, p.y, p.z);
+    Vec3 py(p.x, p.y + config.min_distance, p.z);
+    Vec3 ny(p.x, p.y - config.min_distance, p.z);
+    Vec3 pz(p.x, p.y, p.z + config.min_distance);
+    Vec3 nz(p.x, p.y, p.z - config.min_distance);
     Vec3 normal(
-        scene_sdf(Vec3(p.x + config.min_distance, p.y, p.z)) - scene_sdf(Vec3(p.x - config.min_distance, p.y, p.z)),
-        scene_sdf(Vec3(p.x, p.y + config.min_distance, p.z)) - scene_sdf(Vec3(p.x, p.y - config.min_distance, p.z)),
-        scene_sdf(Vec3(p.x, p.y, p.z + config.min_distance)) - scene_sdf(Vec3(p.x, p.y, p.z - config.min_distance))
-    );
+        scene_sdf(px, config) - scene_sdf(nx, config),
+        scene_sdf(py, config) - scene_sdf(ny, config),
+        scene_sdf(pz, config) - scene_sdf(nz, config));
     return normal.normalize();
 }
 
-MarchStep march_step(Vec3 origin, Vec3 direction, float distance) {
+MarchStep march_step(Vec3 origin, Vec3 direction, float distance,
+                     render::RenderConfig const& config) {
     Vec3 position = origin + direction * distance;
-    return {position, distance, scene_sdf(position)};
+    return {position, distance, scene_sdf(position, config)};
 }
 
 float advance_distance(MarchStep const& step) {
@@ -193,7 +203,8 @@ render::Color trace_ray(Camera const& camera, int x, int y,
     float distance = 0.0f;
 
     for (int step_count = 0; step_count < config.max_steps; ++step_count) {
-        MarchStep step = march_step(camera.position, direction, distance);
+        MarchStep step = march_step(camera.position, direction, distance,
+                                    config);
         if (is_hit(step, config)) {
             return hit_color(step.position, config);
         }

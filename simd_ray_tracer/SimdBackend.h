@@ -16,10 +16,10 @@ struct MarchStep {
 // SIMD behavior at the first operation that diverges.
 Vec3x8 ray_directions(Camera const& camera, __m256 x, __m256 y,
                       render::RenderConfig const& config);
-__m256 scene_sdf(Vec3x8& p);
+__m256 scene_sdf(Vec3x8& p, render::RenderConfig const& config);
 Vec3x8 estimate_normal(Vec3x8& p, render::RenderConfig const& config);
 MarchStep march_step(Vec3x8 const& origins, Vec3x8 const& directions,
-                     __m256 distance);
+                     __m256 distance, render::RenderConfig const& config);
 __m256 advance_distance(MarchStep const& step, __m256 active_mask,
                         render::RenderConfig const& config);
 __m256 hit_mask(MarchStep const& step, render::RenderConfig const& config);
