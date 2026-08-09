@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <charconv>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -8,11 +9,15 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <numbers>
 #include <random>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
+#include "ReferenceBackend.h"
 #include "ScalarBackend.h"
 #include "SimdBackend.h"
 
@@ -26,7 +31,11 @@ constexpr int kLanes = 8;
 struct Comparison {
   std::string name;
   float tolerance;
+  std::string expected_name = "scalar";
+  std::string actual_name = "simd";
+  bool track_ulp = true;
   std::size_t samples = 0;
+  std::size_t skipped = 0;
   std::size_t mismatches = 0;
   std::size_t nonfinite_mismatches = 0;
   double absolute_error_sum = 0.0;
@@ -59,9 +68,10 @@ void compare_value(Comparison &result, float expected, float actual,
       ++result.mismatches;
       ++result.nonfinite_mismatches;
       if (result.first_mismatch.empty()) {
-        result.first_mismatch = location +
-                                " scalar=" + std::to_string(expected) +
-                                " simd=" + std::to_string(actual);
+        result.first_mismatch = location + " " + result.expected_name + "=" +
+                                std::to_string(expected) + " " +
+                                result.actual_name + "=" +
+                                std::to_string(actual);
       }
     }
     return;
@@ -70,13 +80,16 @@ void compare_value(Comparison &result, float expected, float actual,
   float error = std::abs(expected - actual);
   result.absolute_error_sum += static_cast<double>(error);
   result.max_absolute_error = std::max(result.max_absolute_error, error);
-  result.max_ulp_error =
-      std::max(result.max_ulp_error, ulp_distance(expected, actual));
+  if (result.track_ulp) {
+    result.max_ulp_error =
+        std::max(result.max_ulp_error, ulp_distance(expected, actual));
+  }
   if (error > result.tolerance) {
     ++result.mismatches;
     if (result.first_mismatch.empty()) {
-      result.first_mismatch = location + " scalar=" + std::to_string(expected) +
-                              " simd=" + std::to_string(actual);
+      result.first_mismatch = location + " " + result.expected_name + "=" +
+                              std::to_string(expected) + " " +
+                              result.actual_name + "=" + std::to_string(actual);
     }
   }
 }
@@ -91,11 +104,6 @@ __m256 pack(std::array<float, kLanes> const &values) {
   return _mm256_loadu_ps(values.data());
 }
 
-Camera default_camera() {
-  return make_camera(Vec3(0.0f, 0.0f, 2.0f), Vec3(0.0f),
-                     Vec3(0.0f, 1.0f, 0.0f));
-}
-
 void compare_vec3(Comparison &result, Vec3 expected,
                   std::array<float, kLanes> const &xs,
                   std::array<float, kLanes> const &ys,
@@ -108,7 +116,7 @@ void compare_vec3(Comparison &result, Vec3 expected,
 
 Comparison compare_camera(Camera const &camera,
                           render::RenderConfig const &config) {
-  Comparison result{"camera", 2.0e-6f};
+  Comparison result{"scalar vs SIMD camera", 2.0e-6f};
   for (int y : {0, config.height / 3, config.height / 2, config.height - 1}) {
     std::array<float, kLanes> xs{};
     std::array<float, kLanes> ys{};
@@ -158,8 +166,34 @@ std::string point_location(int batch, int lane, Vec3 point) {
          "," + std::to_string(point.z) + ")";
 }
 
+reference::Vec3d to_reference(Vec3 point) {
+  return {static_cast<double>(point.x), static_cast<double>(point.y),
+          static_cast<double>(point.z)};
+}
+
+Comparison compare_reference_sdf(std::mt19937 &generator,
+                                 render::RenderConfig const &config,
+                                 std::string name) {
+  Comparison result{std::move(name), 1.0e-4f, "reference", "scalar"};
+  for (int batch = 0; batch < 512; ++batch) {
+    auto points = random_points(generator, batch);
+    for (int lane = 0; lane < kLanes; ++lane) {
+      reference::DistanceSample expected =
+          reference::sample_sdf(to_reference(points[lane]), config);
+      if (!expected.escaped) {
+        ++result.skipped;
+        continue;
+      }
+      compare_value(result, static_cast<float>(expected.distance),
+                    scalar::scene_sdf(points[lane]),
+                    point_location(batch, lane, points[lane]));
+    }
+  }
+  return result;
+}
+
 Comparison compare_sdf(std::mt19937 &generator) {
-  Comparison result{"scene SDF", 1.0e-5f};
+  Comparison result{"scalar vs SIMD SDF", 1.0e-5f};
   for (int batch = 0; batch < 512; ++batch) {
     auto points = random_points(generator, batch);
     Vec3x8 packet = pack_points(points);
@@ -174,7 +208,7 @@ Comparison compare_sdf(std::mt19937 &generator) {
 
 Comparison compare_normals(std::mt19937 &generator,
                            render::RenderConfig const &config) {
-  Comparison result{"normal", 1.0e-3f};
+  Comparison result{"scalar vs SIMD normal", 1.0e-3f};
   for (int batch = 0; batch < 64; ++batch) {
     auto points = random_points(generator, batch);
     Vec3x8 packet = pack_points(points);
@@ -190,9 +224,35 @@ Comparison compare_normals(std::mt19937 &generator,
   return result;
 }
 
+Comparison compare_reference_normals(std::mt19937 &generator,
+                                     render::RenderConfig const &config) {
+  Comparison result{"reference vs scalar normal angle (degrees)", 0.1f,
+                    "target", "angle", false};
+  constexpr double radians_to_degrees = 180.0 / std::numbers::pi_v<double>;
+  for (int batch = 0; batch < 64; ++batch) {
+    auto points = random_points(generator, batch);
+    for (int lane = 0; lane < kLanes; ++lane) {
+      if (!reference::sample_sdf(to_reference(points[lane]), config).escaped) {
+        ++result.skipped;
+        continue;
+      }
+      reference::Vec3d expected =
+          reference::estimate_normal(to_reference(points[lane]), config);
+      Vec3 actual = scalar::estimate_normal(points[lane], config);
+      double dot = expected.x * static_cast<double>(actual.x) +
+                   expected.y * static_cast<double>(actual.y) +
+                   expected.z * static_cast<double>(actual.z);
+      double angle = std::acos(std::clamp(dot, -1.0, 1.0)) * radians_to_degrees;
+      compare_value(result, 0.0f, static_cast<float>(angle),
+                    point_location(batch, lane, points[lane]));
+    }
+  }
+  return result;
+}
+
 Comparison compare_rays(Camera const &camera,
                         render::RenderConfig const &config) {
-  Comparison result{"traced ray channels", 0.0f};
+  Comparison result{"scalar vs SIMD traced ray channels", 0.0f};
   for (int y = 0; y < config.height; y += 17) {
     std::array<float, kLanes> xs{}, ys{};
     for (int lane = 0; lane < kLanes; ++lane) {
@@ -220,24 +280,42 @@ Comparison compare_rays(Camera const &camera,
   return result;
 }
 
-Comparison compare_render(Camera const &camera,
-                          std::filesystem::path const &output_directory) {
-  render::RenderConfig config = render::kDefaultRenderConfig;
-  config.width = 128;
-  config.height = 128;
-  render::Image scalar_image(config), simd_image(config), diff_image(config);
+std::array<Comparison, 3>
+compare_render(Camera const &camera, render::RenderConfig const &config,
+               std::filesystem::path const &output_directory) {
+  render::Image reference_image(config), scalar_image(config),
+      simd_image(config);
+  render::Image scalar_simd_diff(config), reference_scalar_diff(config);
+  render::Image reference_simd_diff(config);
+  reference::render(camera, config, reference_image);
   scalar::render(camera, config, scalar_image);
   simd8::render(camera, config, simd_image);
 
-  Comparison result{"render channels", 0.0f};
+  Comparison scalar_simd{"scalar vs SIMD render channels", 0.0f};
+  Comparison reference_scalar{"reference vs scalar render channels", 0.0f,
+                              "reference", "scalar"};
+  Comparison reference_simd{"reference vs SIMD render channels", 0.0f,
+                            "reference", "simd"};
   for (std::size_t index = 0; index < scalar_image.size(); ++index) {
-    compare_value(result, static_cast<float>(scalar_image[index]),
+    compare_value(scalar_simd, static_cast<float>(scalar_image[index]),
                   static_cast<float>(simd_image[index]),
                   "channel " + std::to_string(index));
-    int difference = std::abs(static_cast<int>(scalar_image[index]) -
-                              static_cast<int>(simd_image[index]));
-    diff_image[index] =
-        static_cast<render::Pixel>(std::min(255, difference * 8));
+    compare_value(reference_scalar, static_cast<float>(reference_image[index]),
+                  static_cast<float>(scalar_image[index]),
+                  "channel " + std::to_string(index));
+    compare_value(reference_simd, static_cast<float>(reference_image[index]),
+                  static_cast<float>(simd_image[index]),
+                  "channel " + std::to_string(index));
+    auto difference = [](render::Pixel left, render::Pixel right) {
+      int absolute = std::abs(static_cast<int>(left) - static_cast<int>(right));
+      return static_cast<render::Pixel>(std::min(255, absolute * 8));
+    };
+    scalar_simd_diff[index] =
+        difference(scalar_image[index], simd_image[index]);
+    reference_scalar_diff[index] =
+        difference(reference_image[index], scalar_image[index]);
+    reference_simd_diff[index] =
+        difference(reference_image[index], simd_image[index]);
   }
 
   std::filesystem::create_directories(output_directory);
@@ -247,11 +325,14 @@ Comparison compare_render(Camera const &camera,
                           render::kColorChannels, image.data(),
                           static_cast<int>(image.row_stride())) != 0;
   };
-  if (!write("scalar.png", scalar_image) || !write("simd.png", simd_image) ||
-      !write("absolute_diff_x8.png", diff_image)) {
+  if (!write("reference.png", reference_image) ||
+      !write("scalar.png", scalar_image) || !write("simd.png", simd_image) ||
+      !write("scalar_simd_diff_x8.png", scalar_simd_diff) ||
+      !write("reference_scalar_diff_x8.png", reference_scalar_diff) ||
+      !write("reference_simd_diff_x8.png", reference_simd_diff)) {
     std::cerr << "Failed to write correctness images\n";
   }
-  return result;
+  return {scalar_simd, reference_scalar, reference_simd};
 }
 
 void print(std::ostream &output, Comparison const &result) {
@@ -260,9 +341,13 @@ void print(std::ostream &output, Comparison const &result) {
                                           static_cast<double>(result.samples);
   output << (result.passed() ? "PASS " : "FAIL ") << result.name << ": "
          << result.mismatches << '/' << result.samples
-         << " mismatches, nonfinite=" << result.nonfinite_mismatches
-         << ", max_abs=" << result.max_absolute_error << ", mean_abs=" << mean
-         << ", max_ulp=" << result.max_ulp_error << '\n';
+         << " mismatches, skipped=" << result.skipped
+         << ", nonfinite=" << result.nonfinite_mismatches
+         << ", max_abs=" << result.max_absolute_error << ", mean_abs=" << mean;
+  if (result.track_ulp) {
+    output << ", max_ulp=" << result.max_ulp_error;
+  }
+  output << '\n';
   if (!result.first_mismatch.empty()) {
     output << "  first: " << result.first_mismatch << '\n';
   }
@@ -292,31 +377,66 @@ int main(int argc, char *argv[]) {
   std::filesystem::path output_directory =
       std::filesystem::path(SIMD_RAY_MARCHER_SOURCE_DIR) / "images" /
       "correctness" / "current";
-  if (argc == 2) {
+  int resolution = 128;
+  if (argc >= 2) {
     output_directory = argv[1];
-  } else if (argc > 2) {
-    std::cerr << "Usage: " << argv[0] << " [output-directory]\n";
+  }
+  if (argc == 3) {
+    std::string_view value = argv[2];
+    auto [end, error] =
+        std::from_chars(value.data(), value.data() + value.size(), resolution);
+    if (error != std::errc{} || end != value.data() + value.size() ||
+        resolution <= 0 || resolution > 4096 || resolution % kLanes != 0) {
+      std::cerr << "Resolution must be a positive multiple of " << kLanes
+                << " no larger than 4096\n";
+      return 2;
+    }
+  } else if (argc > 3) {
+    std::cerr << "Usage: " << argv[0] << " [output-directory] [resolution]\n";
     return 2;
   }
 
-  Camera camera = default_camera();
+  Camera camera = make_default_camera();
   render::RenderConfig ray_config = render::kDefaultRenderConfig;
-  ray_config.width = 128;
-  ray_config.height = 128;
+  ray_config.width = resolution;
+  ray_config.height = resolution;
   std::mt19937 generator(0x5EEDU);
-  std::array results{
-      compare_camera(camera, ray_config),
-      compare_sdf(generator),
-      compare_normals(generator, ray_config),
-      compare_rays(camera, ray_config),
-      compare_render(camera, output_directory),
-  };
+  render::RenderConfig four_iteration_config = ray_config;
+  four_iteration_config.mandelbulb_iterations = 4;
+  std::vector<Comparison> results;
+  results.push_back(compare_camera(camera, ray_config));
+  results.push_back(
+      compare_reference_sdf(generator, four_iteration_config,
+                            "reference vs scalar SDF (matched 4 iterations)"));
+  generator.seed(0x5EEDU);
+  results.push_back(
+      compare_reference_sdf(generator, ray_config,
+                            "reference vs scalar SDF (configured iterations)"));
+  generator.seed(0x5EEDU);
+  results.push_back(compare_sdf(generator));
+  generator.seed(0x5EEDU);
+  results.push_back(compare_reference_normals(generator, ray_config));
+  generator.seed(0x5EEDU);
+  results.push_back(compare_normals(generator, ray_config));
+  results.push_back(compare_rays(camera, ray_config));
+  auto render_results = compare_render(camera, ray_config, output_directory);
+  results.insert(results.end(), render_results.begin(), render_results.end());
 
   std::ostringstream report;
   report << "architecture=" << architecture() << '\n'
          << "build=" << build_type() << '\n'
          << "simd_api=avx2\n"
          << "compatibility_layer=simde\n"
+         << "reference=float64-trigonometric\n"
+         << "reference_iterations=" << ray_config.mandelbulb_iterations << '\n'
+         << "reference_escape_radius=" << ray_config.mandelbulb_escape_radius
+         << '\n'
+         << "camera_position=" << camera.position.x << ',' << camera.position.y
+         << ',' << camera.position.z << '\n'
+         << "camera_forward=" << camera.forward.x << ',' << camera.forward.y
+         << ',' << camera.forward.z << '\n'
+         << "fov_degrees=" << ray_config.fov_degrees << '\n'
+         << "resolution=" << resolution << 'x' << resolution << '\n'
          << "sample_seed=0x5EED\n";
 
   bool passed = true;

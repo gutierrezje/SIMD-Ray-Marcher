@@ -10,3 +10,4 @@ struct Camera {
 };
 
 Camera make_camera(Vec3 position, Vec3 target, Vec3 up);
+Camera make_default_camera();

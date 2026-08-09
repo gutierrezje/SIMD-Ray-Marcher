@@ -84,13 +84,6 @@ DiffStats compare_images(render::Image const& scalar_image,
     return stats;
 }
 
-Camera default_camera() {
-    return make_camera(
-        Vec3(0.0f, 0.0f, 2.0f),
-        Vec3(0.0f, 0.0f, 0.0f),
-        Vec3(0.0f, 1.0f, 0.0f));
-}
-
 int run_single_backend(Backend backend, Camera const& camera) {
     render::Image image(kConfig);
     double elapsed = measure_seconds([&] {
@@ -169,7 +162,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    Camera camera = default_camera();
+    Camera camera = make_default_camera();
     if (backend == Backend::compare) {
         return run_comparison(camera);
     }

@@ -1,0 +1,31 @@
+architecture=arm64
+build=release
+simd_api=avx2
+compatibility_layer=simde
+reference=float64-trigonometric
+reference_iterations=10
+reference_escape_radius=16
+camera_position=0,0,3
+camera_forward=0,0,-1
+fov_degrees=45
+resolution=1200x1200
+sample_seed=0x5EED
+PASS scalar vs SIMD camera: 0/96 mismatches, skipped=0, nonfinite=0, max_abs=1.19209e-07, mean_abs=1.12153e-08, max_ulp=3
+PASS reference vs scalar SDF (matched 4 iterations): 0/3698 mismatches, skipped=398, nonfinite=0, max_abs=2.38419e-06, mean_abs=1.64809e-07, max_ulp=206
+FAIL reference vs scalar SDF (configured iterations): 27/3759 mismatches, skipped=337, nonfinite=0, max_abs=0.00721974, mean_abs=1.25703e-05, max_ulp=1982260908
+  first: batch 1 lane 1 p=(-0.186095,-0.748585,0.584683) reference=0.000286 scalar=-0.000594
+FAIL scalar vs SIMD SDF: 740/4096 mismatches, skipped=0, nonfinite=0, max_abs=0.0643243, mean_abs=0.00156182, max_ulp=2032128564
+  first: batch 0 lane 1 p=(0.086513,-0.295331,-0.983393) scalar=0.017749 simd=0.015860
+FAIL reference vs scalar normal angle (degrees): 5/467 mismatches, skipped=45, nonfinite=0, max_abs=129.6, mean_abs=0.415181
+  first: batch 1 lane 1 p=(-0.186095,-0.748585,0.584683) target=0.000000 angle=11.804761
+FAIL scalar vs SIMD normal: 289/1536 mismatches, skipped=0, nonfinite=0, max_abs=1.43371, mean_abs=0.0257664, max_ulp=2121205627
+  first: batch 0 lane 1 p=(0.086513,-0.295331,-0.983393).x scalar=0.439396 simd=0.348011
+FAIL scalar vs SIMD traced ray channels: 131/1704 mismatches, skipped=0, nonfinite=0, max_abs=240, mean_abs=6.22594, max_ulp=1131413504
+  first: pixel lane 7 at (119,306) channel 1 scalar=106.000000 simd=0.000000
+FAIL scalar vs SIMD render channels: 57253/4320000 mismatches, skipped=0, nonfinite=0, max_abs=255, mean_abs=0.307499, max_ulp=1132396544
+  first: channel 109723 scalar=197.000000 simd=196.000000
+FAIL reference vs scalar render channels: 370044/4320000 mismatches, skipped=0, nonfinite=0, max_abs=255, mean_abs=1.76796, max_ulp=1132396544
+  first: channel 106195 reference=153.000000 scalar=154.000000
+FAIL reference vs SIMD render channels: 407031/4320000 mismatches, skipped=0, nonfinite=0, max_abs=254, mean_abs=1.97595, max_ulp=1132331008
+  first: channel 106195 reference=153.000000 simd=154.000000
+Overall: FAIL

@@ -3,15 +3,16 @@
 This directory preserves rendering evidence at architecture milestones. A
 baseline is a matched set produced by `correctness_harness`:
 
-- `scalar.png`: scalar reference image
+- `reference.png`: independent float64/trigonometric reference image, when present
+- `scalar.png`: scalar float32 image
 - `simd.png`: candidate backend image
-- `absolute_diff_x8.png`: per-channel absolute difference multiplied by eight
+- `*_diff_x8.png`: named per-channel absolute differences multiplied by eight
 - `report.txt`: numeric stage comparisons and build metadata
 
 Use an immutable, descriptive directory for a milestone, for example:
 
 ```text
-images/correctness/00-simde-neon-before-fixes/
+images/correctness/00-article-framing-before-fixes/
 images/correctness/01-simde-neon-correct/
 images/correctness/02-highway-neon/
 images/correctness/03-highway-multithreaded/
@@ -23,7 +24,20 @@ milestone directory when the result should be retained. Never replace an older
 milestone: the sequence is the record of both rendering fixes and architecture
 changes.
 
-FLIP is an additional end-to-end perceptual metric over `scalar.png` and
-`simd.png`. It complements, but does not replace, the stage-level numeric report.
+The optional second argument selects a square resolution. Correctness milestones
+use the default 128 pixels; article assets use 1200 pixels:
+
+```text
+correctness_harness images/article/normal-color-framing-1200 1200
+```
+
+FLIP is an additional end-to-end perceptual metric over a reference/candidate
+image pair. Prefer `reference.png` as the reference when present; older
+milestones use `scalar.png`. FLIP complements, but does not replace, the
+stage-level numeric report.
 Performance results belong in a separate benchmark record so correctness runs
 do not mix timing noise into rendering evidence.
+
+The Mandelbulb distance estimate is an exterior estimate, not an exact signed
+distance. Reference SDF and normal statistics therefore record bounded samples
+as skipped instead of treating their interior values as an exact oracle.

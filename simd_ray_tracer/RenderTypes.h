@@ -16,6 +16,7 @@ struct RenderConfig {
     int height = 2056;
     int mandelbulb_iterations = 10;
     float power = 8.0f;
+    float mandelbulb_escape_radius = 16.0f;
     float min_distance = 0.001f;
     float max_distance = 100.0f;
     int max_steps = 100;

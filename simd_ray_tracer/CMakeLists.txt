@@ -34,6 +34,8 @@ add_executable(ray_march
 
 add_executable(correctness_harness
     "correctness_harness.cpp"
+    "ReferenceBackend.h"
+    "ReferenceBackend.cpp"
     ${RAY_MARCHER_CORE_SOURCES}
 )
 
