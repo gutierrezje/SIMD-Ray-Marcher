@@ -364,3 +364,6 @@ FodyWeavers.xsd
 
 .vscode/
 build/
+
+# Disposable output from correctness_harness. Named milestones are retained.
+images/correctness/current/
