@@ -13,9 +13,10 @@ Use an immutable, descriptive directory for a milestone, for example:
 
 ```text
 images/correctness/00-article-framing-before-fixes/
-images/correctness/01-simde-neon-correct/
-images/correctness/02-highway-neon/
-images/correctness/03-highway-multithreaded/
+images/correctness/01-lane-local-escape-fix/
+images/correctness/02-render-config-authoritative/
+images/correctness/03-highway-neon/
+images/correctness/04-highway-multithreaded/
 ```
 
 Running the harness without an output argument writes to

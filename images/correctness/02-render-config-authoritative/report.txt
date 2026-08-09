@@ -1,0 +1,26 @@
+architecture=arm64
+build=release
+simd_api=avx2
+compatibility_layer=simde
+reference=float64-trigonometric
+reference_iterations=10
+reference_escape_radius=16
+camera_position=0,0,3
+camera_forward=0,0,-1
+fov_degrees=45
+resolution=128x128
+sample_seed=0x5EED
+PASS scalar vs SIMD camera: 0/96 mismatches, skipped=0, nonfinite=0, max_abs=2.98023e-08, mean_abs=1.94026e-09, max_ulp=1
+PASS reference vs scalar SDF (matched 4 iterations): 0/3698 mismatches, skipped=398, nonfinite=0, max_abs=2.38419e-06, mean_abs=1.64809e-07, max_ulp=206
+PASS reference vs scalar SDF (configured iterations): 0/3759 mismatches, skipped=337, nonfinite=0, max_abs=2.38419e-06, mean_abs=1.6248e-07, max_ulp=146426
+PASS reference vs scalar SDF (configured escape radius): 0/3760 mismatches, skipped=336, nonfinite=0, max_abs=2.38419e-06, mean_abs=1.61101e-07, max_ulp=146426
+PASS SIMD SDF packet invariance: 0/8 mismatches, skipped=0, nonfinite=0, max_abs=0, mean_abs=0, max_ulp=0
+PASS scalar vs SIMD SDF: 0/4096 mismatches, skipped=0, nonfinite=0, max_abs=3.09944e-06, mean_abs=1.53713e-07, max_ulp=99651
+PASS scalar vs SIMD SDF (configured escape radius): 0/4096 mismatches, skipped=0, nonfinite=0, max_abs=3.09944e-06, mean_abs=1.52166e-07, max_ulp=99651
+PASS reference vs scalar normal angle (degrees): 0/467 mismatches, skipped=45, nonfinite=0, max_abs=0.0527616, mean_abs=0.00577922
+PASS scalar vs SIMD normal angle (degrees): 0/512 mismatches, skipped=0, nonfinite=0, max_abs=0.0652506, mean_abs=0.00497034
+PASS scalar vs SIMD traced ray channels: 0/192 mismatches, skipped=0, nonfinite=0, max_abs=0, mean_abs=0, max_ulp=0
+PASS scalar vs SIMD render channels: 0/49152 mismatches, skipped=0, nonfinite=0, max_abs=8, mean_abs=0.00181071, max_ulp=8388608
+PASS reference vs scalar render channels: 0/49152 mismatches, skipped=0, nonfinite=0, max_abs=2, mean_abs=0.00203451, max_ulp=8388608
+PASS reference vs SIMD render channels: 0/49152 mismatches, skipped=0, nonfinite=0, max_abs=8, mean_abs=0.00278727, max_ulp=8388608
+Overall: PASS
