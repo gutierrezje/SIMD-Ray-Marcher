@@ -297,6 +297,29 @@ Comparison compare_sdf(std::mt19937& generator) {
     return result;
 }
 
+Comparison compare_sdf_packet_invariance() {
+    Comparison result{"SIMD SDF packet invariance", 0.0f, "uniform_packet",
+                      "mixed_packet"};
+    Vec3 const target(0.086513f, -0.295331f, -0.983393f);
+    Vec3 const escaped_companion(3.0f, 3.0f, 3.0f);
+
+    PointBatch uniform_points{};
+    uniform_points.fill(target);
+    Vec3x8 uniform_packet = pack_points(uniform_points);
+    LaneValues expected = lanes(simd8::scene_sdf(uniform_packet));
+
+    for (int lane = 0; lane < kLanes; ++lane) {
+        PointBatch mixed_points{};
+        mixed_points.fill(escaped_companion);
+        mixed_points[lane] = target;
+        Vec3x8 mixed_packet = pack_points(mixed_points);
+        LaneValues actual = lanes(simd8::scene_sdf(mixed_packet));
+        compare_value(result, expected[lane], actual[lane],
+                      batch_point_location(0, lane, target));
+    }
+    return result;
+}
+
 Comparison compare_normals(std::mt19937& generator,
                            render::RenderConfig const& config) {
     Comparison result{"scalar vs SIMD normal", 1.0e-3f};
@@ -522,6 +545,7 @@ int main(int argc, char* argv[]) {
     results.push_back(compare_reference_sdf(
         generator, ray_config,
         "reference vs scalar SDF (configured iterations)"));
+    results.push_back(compare_sdf_packet_invariance());
     generator.seed(kDefaultSeed);
     results.push_back(compare_sdf(generator));
     generator.seed(kDefaultSeed);
