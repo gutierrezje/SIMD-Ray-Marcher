@@ -14,8 +14,20 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(simde)
 
 # Add source to this project's executable.
-add_executable (simd_ray_march "simd_ray_march.cpp"   "Camera.h" "SimdBackend.h" "SimdBackend.cpp" "RenderConfig.h" "RenderTypes.h" "Vec3.h" "Vec3.cpp" "Camera.cpp" "Vec3x8.h" "Vec3x8.cpp")
-add_executable (scalar_ray_march "scalar_ray_march.cpp"   "Camera.h" "ScalarBackend.h" "ScalarBackend.cpp" "RenderConfig.h" "RenderTypes.h" "Vec3.h" "Vec3.cpp" "Camera.cpp")
+add_executable(ray_march
+    "ray_march.cpp"
+    "Camera.h"
+    "Camera.cpp"
+    "RenderTypes.h"
+    "ScalarBackend.h"
+    "ScalarBackend.cpp"
+    "SimdBackend.h"
+    "SimdBackend.cpp"
+    "Vec3.h"
+    "Vec3.cpp"
+    "Vec3x8.h"
+    "Vec3x8.cpp"
+)
 
 set(SIMD_RAY_MARCHER_X86 FALSE)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64|i[3-6]86)$")
@@ -24,30 +36,28 @@ elseif(MSVC AND CMAKE_GENERATOR_PLATFORM MATCHES "^(x64|Win32)$")
     set(SIMD_RAY_MARCHER_X86 TRUE)
 endif()
 
-foreach(target simd_ray_march scalar_ray_march)
-    set_target_properties(${target} PROPERTIES
-        CXX_STANDARD 20
-        CXX_STANDARD_REQUIRED YES
-        CXX_EXTENSIONS NO
-    )
-    target_include_directories(${target} SYSTEM PRIVATE "${simde_SOURCE_DIR}")
+set_target_properties(ray_march PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED YES
+    CXX_EXTENSIONS NO
+)
+target_include_directories(ray_march SYSTEM PRIVATE "${simde_SOURCE_DIR}")
 
-    if(MSVC)
-        if(SIMD_RAY_MARCHER_X86)
-            target_compile_options(${target} PRIVATE /arch:AVX2)
-        endif()
-    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR
-           CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR
-           CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
-        target_compile_options(${target} PRIVATE
-            -O3
-            -Wdouble-promotion
-            -Werror=double-promotion
-        )
-        if(SIMD_RAY_MARCHER_X86)
-            target_compile_options(${target} PRIVATE -mavx2)
-        endif()
+if(MSVC)
+    if(SIMD_RAY_MARCHER_X86)
+        target_compile_options(ray_march PRIVATE /arch:AVX2)
     endif()
-endforeach()
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR
+       CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR
+       CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
+    target_compile_options(ray_march PRIVATE
+        -O3
+        -Wdouble-promotion
+        -Werror=double-promotion
+    )
+    if(SIMD_RAY_MARCHER_X86)
+        target_compile_options(ray_march PRIVATE -mavx2)
+    endif()
+endif()
 
 # TODO: Add tests and install targets if needed.

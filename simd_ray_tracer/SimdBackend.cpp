@@ -156,6 +156,84 @@ __m256 sphere_sdf(Vec3x8& p)
     return _mm256_sub_ps(length, radius);
 }
 
+void set_color_to_image(render::Image& image, Vec3x8& color, __m256 xs,
+                        __m256 ys, render::RenderConfig const& config)
+{
+#ifdef __GNUC__
+    __m128 xs_lo = _mm256_extractf128_ps(xs, 0);
+    __m128 xs_hi = _mm256_extractf128_ps(xs, 1);
+    __m128 ys_lo = _mm256_extractf128_ps(ys, 0);
+    __m128 ys_hi = _mm256_extractf128_ps(ys, 1);
+    __m128 color_x_lo = _mm256_extractf128_ps(color.x256, 0);
+    __m128 color_x_hi = _mm256_extractf128_ps(color.x256, 1);
+    __m128 color_y_lo = _mm256_extractf128_ps(color.y256, 0);
+    __m128 color_y_hi = _mm256_extractf128_ps(color.y256, 1);
+    __m128 color_z_lo = _mm256_extractf128_ps(color.z256, 0);
+    __m128 color_z_hi = _mm256_extractf128_ps(color.z256, 1);
+
+    float xs_arr_lo[4];
+    float xs_arr_hi[4];
+    float ys_arr_lo[4];
+    float ys_arr_hi[4];
+    float col_x_arr_lo[4];
+    float col_x_arr_hi[4];
+    float col_y_arr_lo[4];
+    float col_y_arr_hi[4];
+    float col_z_arr_lo[4];
+    float col_z_arr_hi[4];
+
+    _mm_storeu_ps(xs_arr_lo, xs_lo);
+    _mm_storeu_ps(xs_arr_hi, xs_hi);
+    _mm_storeu_ps(ys_arr_lo, ys_lo);
+    _mm_storeu_ps(ys_arr_hi, ys_hi);
+    _mm_storeu_ps(col_x_arr_lo, color_x_lo);
+    _mm_storeu_ps(col_x_arr_hi, color_x_hi);
+    _mm_storeu_ps(col_y_arr_lo, color_y_lo);
+    _mm_storeu_ps(col_y_arr_hi, color_y_hi);
+    _mm_storeu_ps(col_z_arr_lo, color_z_lo);
+    _mm_storeu_ps(col_z_arr_hi, color_z_hi);
+
+    for (int i = 0; i < 4; ++i) {
+        int index = ((int)ys_arr_lo[i] * config.width + (int)xs_arr_lo[i]) * render::kColorChannels;
+        if (index < config.width * config.height * render::kColorChannels) {
+            image[index] = static_cast<unsigned char>(col_x_arr_lo[i]);
+        }
+        if (index + 1 < config.width * config.height * render::kColorChannels) {
+            image[index + 1] = static_cast<unsigned char>(col_y_arr_lo[i]);
+        }
+        if (index + 2 < config.width * config.height * render::kColorChannels) {
+            image[index + 2] = static_cast<unsigned char>(col_z_arr_lo[i]);
+        }
+    }
+    for (int i = 0; i < 4; ++i) {
+        int index = ((int)ys_arr_hi[i] * config.width + (int)xs_arr_hi[i]) * render::kColorChannels;
+        if (index < config.width * config.height * render::kColorChannels) {
+            image[index] = static_cast<unsigned char>(col_x_arr_hi[i]);
+        }
+        if (index + 1 < config.width * config.height * render::kColorChannels) {
+            image[index + 1] = static_cast<unsigned char>(col_y_arr_hi[i]);
+        }
+        if (index + 2 < config.width * config.height * render::kColorChannels) {
+            image[index + 2] = static_cast<unsigned char>(col_z_arr_hi[i]);
+        }
+    }
+
+#else
+    for (int i = 0; i < 8; i++) {
+        int index = ((int)ys.m256_f32[i] * config.width + (int)xs.m256_f32[i]) * render::kColorChannels;
+        if (index < config.width * config.height * render::kColorChannels) {
+            image[index] = static_cast<unsigned char>(color.x256.m256_f32[i]);
+        }
+        if (index + 1 < config.width * config.height * render::kColorChannels) {
+            image[index + 1] = static_cast<unsigned char>(color.y256.m256_f32[i]);
+        }
+        if (index + 2 < config.width * config.height * render::kColorChannels) {
+            image[index + 2] = static_cast<unsigned char>(color.z256.m256_f32[i]);
+        }
+    }
+#endif
+}
+
 } // namespace
 
 Vec3x8 ray_directions(Camera const& camera, __m256 x, __m256 y,
@@ -210,6 +288,98 @@ Vec3x8 estimate_normal(Vec3x8& p, render::RenderConfig const& config) {
     __m256 nz_grad = _mm256_sub_ps(sdf_pz, sdf_nz);
 
     return Vec3x8(nx_grad, ny_grad, nz_grad).normalize();
+}
+
+MarchStep march_step(Vec3x8 const& origins, Vec3x8 const& directions,
+                     __m256 distance) {
+    Vec3x8 position = origins + directions * distance;
+    return {position, distance, scene_sdf(position)};
+}
+
+__m256 advance_distance(MarchStep const& step, __m256 active_mask,
+                        render::RenderConfig const& config) {
+    __m256 continue_mask = _mm256_cmp_ps(
+        step.sdf, _mm256_set1_ps(config.min_distance), _CMP_GT_OS);
+    continue_mask = _mm256_and_ps(continue_mask, active_mask);
+    __m256 next_distance = _mm256_add_ps(step.distance, step.sdf);
+    return _mm256_blendv_ps(step.distance, next_distance, continue_mask);
+}
+
+__m256 hit_mask(MarchStep const& step, render::RenderConfig const& config) {
+    return _mm256_cmp_ps(step.sdf, _mm256_set1_ps(config.min_distance),
+                         _CMP_LT_OS);
+}
+
+__m256 miss_mask(__m256 distance, render::RenderConfig const& config) {
+    return _mm256_cmp_ps(distance, _mm256_set1_ps(config.max_distance),
+                         _CMP_GT_OS);
+}
+
+void apply_hit_color(Vec3x8& color, Vec3x8 const& normal, __m256 mask) {
+    color.addWithMask(Vec3x8(255.f), mask);
+    color.multiplyWithMask(normal, mask);
+}
+
+void clamp_color(Vec3x8& color) {
+    color.x256 = _mm256_max_ps(
+        _mm256_set1_ps(0.0f),
+        _mm256_min_ps(_mm256_set1_ps(255.0f), color.x256));
+    color.y256 = _mm256_max_ps(
+        _mm256_set1_ps(0.0f),
+        _mm256_min_ps(_mm256_set1_ps(255.0f), color.y256));
+    color.z256 = _mm256_max_ps(
+        _mm256_set1_ps(0.0f),
+        _mm256_min_ps(_mm256_set1_ps(255.0f), color.z256));
+}
+
+Vec3x8 trace_ray_packet(Camera const& camera, __m256 xs, __m256 ys,
+                        render::RenderConfig const& config) {
+    Vec3x8 directions = ray_directions(camera, xs, ys, config);
+    Vec3x8 ray_origins(camera.position);
+    __m256 distances = _mm256_set1_ps(0.0f);
+    __m256 active_mask =
+        _mm256_set1_ps(-std::numeric_limits<float>::signaling_NaN());
+    Vec3x8 color(0.0f);
+
+    for (int step_count = 0; step_count < config.max_steps; ++step_count) {
+        MarchStep step = march_step(ray_origins, directions, distances);
+
+        __m256 hits = _mm256_and_ps(hit_mask(step, config), active_mask);
+        if (!_mm256_testz_ps(hits, hits)) {
+            Vec3x8 normals = estimate_normal(step.position, config);
+            apply_hit_color(color, normals, hits);
+        }
+
+        distances = advance_distance(step, active_mask, config);
+
+        __m256 misses = _mm256_and_ps(miss_mask(distances, config),
+                                      active_mask);
+        if (!_mm256_testz_ps(misses, misses)) {
+            color.multiplyWithMask(Vec3x8(0.0f), misses);
+        }
+
+        __m256 terminate_mask = _mm256_or_ps(hits, misses);
+        active_mask = _mm256_andnot_ps(terminate_mask, active_mask);
+        if (_mm256_testz_ps(active_mask, active_mask)) {
+            break;
+        }
+    }
+
+    clamp_color(color);
+    return color;
+}
+
+void render(Camera const& camera, render::RenderConfig const& config,
+            render::Image& image) {
+    for (int y = 0; y < config.height; ++y) {
+        for (int x = 0; x < config.width; x += 8) {
+            __m256 xs = _mm256_setr_ps(
+                x, x + 1, x + 2, x + 3, x + 4, x + 5, x + 6, x + 7);
+            __m256 ys = _mm256_set1_ps(y);
+            Vec3x8 color = trace_ray_packet(camera, xs, ys, config);
+            set_color_to_image(image, color, xs, ys, config);
+        }
+    }
 }
 
 } // namespace simd8

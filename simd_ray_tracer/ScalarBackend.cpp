@@ -151,4 +151,74 @@ Vec3 estimate_normal(Vec3 p, render::RenderConfig const& config) {
     return normal.normalize();
 }
 
+MarchStep march_step(Vec3 origin, Vec3 direction, float distance) {
+    Vec3 position = origin + direction * distance;
+    return {position, distance, scene_sdf(position)};
+}
+
+float advance_distance(MarchStep const& step) {
+    return step.distance + step.sdf;
+}
+
+bool is_hit(MarchStep const& step, render::RenderConfig const& config) {
+    return step.sdf < config.min_distance;
+}
+
+bool is_miss(float distance, render::RenderConfig const& config) {
+    return distance > config.max_distance;
+}
+
+render::Color hit_color(Vec3 position,
+                        render::RenderConfig const& config) {
+    Vec3 normal = estimate_normal(position, config);
+    float components[render::kColorChannels] = {
+        normal.x * 255.0f,
+        normal.y * 255.0f,
+        normal.z * 255.0f,
+    };
+
+    render::Color color{};
+    for (int channel = 0; channel < render::kColorChannels; ++channel) {
+        components[channel] = std::max(0.0f,
+                                        std::min(255.0f, components[channel]));
+        color[channel] = static_cast<render::Pixel>(components[channel]);
+    }
+    return color;
+}
+
+render::Color trace_ray(Camera const& camera, int x, int y,
+                        render::RenderConfig const& config) {
+    Vec3 direction = ray_direction(camera, static_cast<float>(x),
+                                   static_cast<float>(y), config);
+    float distance = 0.0f;
+
+    for (int step_count = 0; step_count < config.max_steps; ++step_count) {
+        MarchStep step = march_step(camera.position, direction, distance);
+        if (is_hit(step, config)) {
+            return hit_color(step.position, config);
+        }
+
+        distance = advance_distance(step);
+        if (is_miss(distance, config)) {
+            break;
+        }
+    }
+
+    return {};
+}
+
+void render(Camera const& camera, render::RenderConfig const& config,
+            render::Image& image) {
+    for (int y = 0; y < config.height; y++) {
+        for (int x = 0; x < config.width; x++) {
+            render::Color color = trace_ray(camera, x, y, config);
+            for (int channel = 0; channel < render::kColorChannels;
+                 ++channel) {
+                image[(y * config.width + x) * render::kColorChannels + channel] =
+                    color[channel];
+            }
+        }
+    }
+}
+
 } // namespace scalar
