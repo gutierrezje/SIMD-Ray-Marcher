@@ -3,7 +3,7 @@
 
 #include "simd_compat.h"
 
-#include "Camera.h"
+#include "SimdBackend.h"
 #include "RenderTypes.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -280,10 +280,10 @@ void setColorToImage(render::Image& image, Vec3x8& color, __m256 xs, __m256 ys)
 #endif
 }
 
-void ray_march(Vec3x8 origins, Camera& camera, render::Image& image)
+void ray_march(Vec3x8 origins, Camera const& camera, render::Image& image)
 {
     auto [xs, ys, zs] = origins;
-    Vec3x8 directions = camera.get_ray_directions(xs, ys);
+    Vec3x8 directions = simd8::ray_directions(camera, xs, ys, kConfig);
     Vec3x8 ray_origins(camera.position);
     __m256 distances = _mm256_set1_ps(0.0f);
 
@@ -344,7 +344,7 @@ int main()
     Vec3 camera_position = Vec3(0.0f, 0.0f, 2.0f);
     Vec3 look_at = Vec3(0.0f, 0.0f, 0.0f);
     Vec3 up = Vec3(0.0f, 1.0f, 0.0f);
-    Camera camera(camera_position, look_at, up);
+    Camera camera = make_camera(camera_position, look_at, up);
 
     auto start = std::chrono::high_resolution_clock::now();
 

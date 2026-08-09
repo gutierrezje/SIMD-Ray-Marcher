@@ -4,7 +4,7 @@
 #include <iostream>
 #include <cmath>
 
-#include "Camera.h"
+#include "ScalarBackend.h"
 #include "RenderTypes.h"
 
 #include <chrono>
@@ -159,8 +159,9 @@ Vec3 estimateNormal(Vec3 p) {
     return normal.normalize();
 }
 
-void ray_march(int x, int y, Camera camera, render::Image& image) {
-    Vec3 direction = camera.get_ray_direction(static_cast<float>(x), static_cast<float>(y));
+void ray_march(int x, int y, Camera const& camera, render::Image& image) {
+    Vec3 direction = scalar::ray_direction(camera, static_cast<float>(x),
+                                           static_cast<float>(y), kConfig);
     Vec3 ray_origin = camera.position;
     float distance = 0.0f;
     for (int i = 0; i < kConfig.max_steps; i++) {
@@ -196,7 +197,7 @@ int main() {
     Vec3 camera_position = Vec3(0.0f, 0.0f, 2.0f);
     Vec3 look_at = Vec3(0.0f, 0.0f, 0.0f);
     Vec3 up = Vec3(0.0f, 1.0f, 0.0f);
-    Camera camera(camera_position, look_at, up);
+    Camera camera = make_camera(camera_position, look_at, up);
 
     // Set up timer
     auto start = std::chrono::high_resolution_clock::now();
