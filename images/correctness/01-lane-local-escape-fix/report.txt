@@ -1,0 +1,30 @@
+architecture=arm64
+build=release
+simd_api=avx2
+compatibility_layer=simde
+reference=float64-trigonometric
+reference_iterations=10
+reference_escape_radius=16
+camera_position=0,0,3
+camera_forward=0,0,-1
+fov_degrees=45
+resolution=128x128
+sample_seed=0x5EED
+PASS scalar vs SIMD camera: 0/96 mismatches, skipped=0, nonfinite=0, max_abs=2.98023e-08, mean_abs=1.94026e-09, max_ulp=1
+PASS reference vs scalar SDF (matched 4 iterations): 0/3698 mismatches, skipped=398, nonfinite=0, max_abs=2.38419e-06, mean_abs=1.64809e-07, max_ulp=206
+FAIL reference vs scalar SDF (configured iterations): 27/3759 mismatches, skipped=337, nonfinite=0, max_abs=0.00721974, mean_abs=1.25703e-05, max_ulp=1982260908
+  first: batch 1 lane 1 p=(-0.186095,-0.748585,0.584683) reference=0.000286 scalar=-0.000594
+PASS SIMD SDF packet invariance: 0/8 mismatches, skipped=0, nonfinite=0, max_abs=0, mean_abs=0, max_ulp=0
+PASS scalar vs SIMD SDF: 0/4096 mismatches, skipped=0, nonfinite=0, max_abs=3.09944e-06, mean_abs=1.5306e-07, max_ulp=12998
+FAIL reference vs scalar normal angle (degrees): 5/467 mismatches, skipped=45, nonfinite=0, max_abs=129.6, mean_abs=0.415181
+  first: batch 1 lane 1 p=(-0.186095,-0.748585,0.584683) target=0.000000 angle=11.804761
+FAIL scalar vs SIMD normal: 1/1536 mismatches, skipped=0, nonfinite=0, max_abs=0.00105178, mean_abs=8.44342e-05, max_ulp=946196514
+  first: batch 32 lane 6 p=(1.369748,2.735335,1.225659).x scalar=0.415242 simd=0.416294
+PASS scalar vs SIMD traced ray channels: 0/192 mismatches, skipped=0, nonfinite=0, max_abs=0, mean_abs=0, max_ulp=0
+FAIL scalar vs SIMD render channels: 55/49152 mismatches, skipped=0, nonfinite=0, max_abs=1, mean_abs=0.00111898, max_ulp=8388608
+  first: channel 2127 scalar=12.000000 simd=13.000000
+FAIL reference vs scalar render channels: 4426/49152 mismatches, skipped=0, nonfinite=0, max_abs=254, mean_abs=1.80593, max_ulp=1132331008
+  first: channel 1716 reference=158.000000 scalar=159.000000
+FAIL reference vs SIMD render channels: 4422/49152 mismatches, skipped=0, nonfinite=0, max_abs=254, mean_abs=1.80587, max_ulp=1132331008
+  first: channel 1716 reference=158.000000 simd=159.000000
+Overall: FAIL
