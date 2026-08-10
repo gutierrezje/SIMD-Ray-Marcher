@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Camera.h"
+#include "LaneOccupancy.h"
 #include "RenderTypes.h"
 #include "Vec3x8.h"
 
@@ -30,5 +31,10 @@ Vec3x8 trace_ray_packet(Camera const& camera, __m256 xs, __m256 ys,
                         render::RenderConfig const& config);
 void render(Camera const& camera, render::RenderConfig const& config,
             render::Image& image);
+#ifdef SIMD_RAY_MARCHER_ENABLE_LANE_OCCUPANCY
+void render_with_lane_occupancy(const Camera& camera,
+                                const render::RenderConfig& config,
+                                render::Image& image, LaneOccupancy& occupancy);
+#endif
 
 }  // namespace simd8

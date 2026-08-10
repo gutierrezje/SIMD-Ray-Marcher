@@ -30,6 +30,7 @@ FetchContent_MakeAvailable(highway)
 set(RAY_MARCHER_CORE_SOURCES
     "Camera.h"
     "Camera.cpp"
+    "LaneOccupancy.h"
     "RenderTypes.h"
     "ScalarBackend.h"
     "ScalarBackend.cpp"
@@ -58,6 +59,14 @@ add_executable(highway_probe
     "HighwayBackend.h"
     "HighwayBackend.cpp"
     "HighwayBackend-inl.h"
+)
+
+add_executable(lane_occupancy_capture
+    "lane_occupancy_capture.cpp"
+    ${RAY_MARCHER_CORE_SOURCES}
+)
+target_compile_definitions(lane_occupancy_capture PRIVATE
+    SIMD_RAY_MARCHER_ENABLE_LANE_OCCUPANCY
 )
 target_link_libraries(highway_probe PRIVATE hwy)
 target_compile_definitions(highway_probe PRIVATE HWY_COMPILE_ONLY_STATIC)
@@ -99,8 +108,12 @@ endfunction()
 configure_ray_marcher_target(ray_march)
 configure_ray_marcher_target(correctness_harness)
 configure_ray_marcher_target(highway_probe)
+configure_ray_marcher_target(lane_occupancy_capture)
 target_include_directories(ray_march SYSTEM PRIVATE "${simde_SOURCE_DIR}")
 target_include_directories(correctness_harness SYSTEM PRIVATE
+    "${simde_SOURCE_DIR}"
+)
+target_include_directories(lane_occupancy_capture SYSTEM PRIVATE
     "${simde_SOURCE_DIR}"
 )
 target_compile_definitions(correctness_harness PRIVATE

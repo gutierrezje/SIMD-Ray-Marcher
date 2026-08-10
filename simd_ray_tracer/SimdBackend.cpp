@@ -1,8 +1,11 @@
 #include "SimdBackend.h"
 
+#include <bit>
 #include <cassert>
 #include <cmath>
+#include <cstdint>
 #include <limits>
+#include <vector>
 
 #ifdef __GNUC__
 #include "avx_mathfun.h"
@@ -18,7 +21,71 @@ bool has_nan(__m256 v) {
   return !_mm256_testz_ps(mask, mask);
 }
 
-__m256 optim_mandelbulb(Vec3x8& p, render::RenderConfig const& config) {
+constexpr unsigned kBothNativeHalves = 0x3U;
+
+unsigned active_lane_bits(__m256 mask) {
+  return static_cast<unsigned>(_mm256_movemask_ps(mask)) & 0xFFU;
+}
+
+std::size_t active_lane_count(__m256 mask) {
+  return static_cast<std::size_t>(std::popcount(active_lane_bits(mask)));
+}
+
+unsigned active_native_halves(__m256 mask) {
+  const unsigned bits = active_lane_bits(mask);
+  return (bits & 0x0FU ? 0x1U : 0U) | (bits & 0xF0U ? 0x2U : 0U);
+}
+
+void record_native4_iteration(std::vector<std::uint64_t>& active_by_iteration,
+                              std::vector<std::uint64_t>& packets_by_iteration,
+                              std::size_t index, __m256 active_mask,
+                              unsigned relevant_halves) {
+  const unsigned bits = active_lane_bits(active_mask);
+  for (unsigned half = 0; half < 2; half += 1) {
+    if ((relevant_halves & (1U << half)) == 0) {
+      continue;
+    }
+    const unsigned half_bits = (bits >> (half * 4)) & 0x0FU;
+    if (half_bits == 0) {
+      continue;
+    }
+    active_by_iteration[index] += std::popcount(half_bits);
+    packets_by_iteration[index] += 1;
+  }
+}
+
+void record_ray_iteration(LaneOccupancy& occupancy, int step,
+                          __m256 active_mask) {
+  const std::size_t active = active_lane_count(active_mask);
+  const std::size_t index = static_cast<std::size_t>(step);
+  occupancy.ray_active_by_step[index] += active;
+  occupancy.ray_packets_by_step[index] += 1;
+  occupancy.ray_active_histogram[active] += 1;
+  record_native4_iteration(occupancy.native4_ray_active_by_step,
+                           occupancy.native4_ray_packets_by_step, index,
+                           active_mask, kBothNativeHalves);
+}
+
+void record_sdf_iteration(LaneOccupancy& occupancy, int iteration,
+                          __m256 active_mask, unsigned relevant_halves) {
+  const std::size_t active = active_lane_count(active_mask);
+  const std::size_t index = static_cast<std::size_t>(iteration);
+  occupancy.sdf_active_by_iteration[index] += active;
+  occupancy.sdf_packets_by_iteration[index] += 1;
+  occupancy.sdf_active_histogram[active] += 1;
+  record_native4_iteration(occupancy.native4_sdf_active_by_iteration,
+                           occupancy.native4_sdf_packets_by_iteration, index,
+                           active_mask, relevant_halves);
+}
+
+template <bool CollectLaneOccupancy>
+__m256 optim_mandelbulb(Vec3x8& p, render::RenderConfig const& config,
+                        LaneOccupancy* occupancy,
+                        unsigned native4_relevant_halves) {
+  if constexpr (CollectLaneOccupancy) {
+    occupancy->sdf_calls += 1;
+  }
+
   Vec3x8 w(p.x256, p.y256, p.z256);
   __m256 m = w.dot(w);
 
@@ -30,6 +97,11 @@ __m256 optim_mandelbulb(Vec3x8& p, render::RenderConfig const& config) {
 
   for (int iteration = 0; iteration < config.mandelbulb_iterations;
        iteration += 1) {
+    if constexpr (CollectLaneOccupancy) {
+      record_sdf_iteration(*occupancy, iteration, active_mask,
+                           native4_relevant_halves);
+    }
+
     __m256 m2 = _mm256_mul_ps(m, m);
     __m256 m4 = _mm256_mul_ps(m2, m2);
     // dz = 8.0 * sqrt(m4 * m2 * m) * dz + 1.0;
@@ -237,11 +309,20 @@ Vec3x8 ray_directions(Camera const& camera, __m256 x, __m256 y,
   return ray_directions.normalize();
 }
 
-__m256 scene_sdf(Vec3x8& p, render::RenderConfig const& config) {
-  return optim_mandelbulb(p, config);
+namespace {
+
+template <bool CollectLaneOccupancy>
+__m256 scene_sdf_impl(Vec3x8& p, render::RenderConfig const& config,
+                      LaneOccupancy* occupancy,
+                      unsigned native4_relevant_halves) {
+  return optim_mandelbulb<CollectLaneOccupancy>(p, config, occupancy,
+                                                native4_relevant_halves);
 }
 
-Vec3x8 estimate_normal(Vec3x8& p, render::RenderConfig const& config) {
+template <bool CollectLaneOccupancy>
+Vec3x8 estimate_normal_impl(Vec3x8& p, render::RenderConfig const& config,
+                            LaneOccupancy* occupancy,
+                            unsigned native4_relevant_halves) {
   const __m256 eps = _mm256_set1_ps(config.min_distance);
 
   Vec3x8 px = p + Vec3x8(eps, _mm256_setzero_ps(), _mm256_setzero_ps());
@@ -253,12 +334,18 @@ Vec3x8 estimate_normal(Vec3x8& p, render::RenderConfig const& config) {
   Vec3x8 pz = p + Vec3x8(_mm256_setzero_ps(), _mm256_setzero_ps(), eps);
   Vec3x8 nz = p - Vec3x8(_mm256_setzero_ps(), _mm256_setzero_ps(), eps);
 
-  __m256 sdf_px = scene_sdf(px, config);
-  __m256 sdf_nx = scene_sdf(nx, config);
-  __m256 sdf_py = scene_sdf(py, config);
-  __m256 sdf_ny = scene_sdf(ny, config);
-  __m256 sdf_pz = scene_sdf(pz, config);
-  __m256 sdf_nz = scene_sdf(nz, config);
+  __m256 sdf_px = scene_sdf_impl<CollectLaneOccupancy>(px, config, occupancy,
+                                                       native4_relevant_halves);
+  __m256 sdf_nx = scene_sdf_impl<CollectLaneOccupancy>(nx, config, occupancy,
+                                                       native4_relevant_halves);
+  __m256 sdf_py = scene_sdf_impl<CollectLaneOccupancy>(py, config, occupancy,
+                                                       native4_relevant_halves);
+  __m256 sdf_ny = scene_sdf_impl<CollectLaneOccupancy>(ny, config, occupancy,
+                                                       native4_relevant_halves);
+  __m256 sdf_pz = scene_sdf_impl<CollectLaneOccupancy>(pz, config, occupancy,
+                                                       native4_relevant_halves);
+  __m256 sdf_nz = scene_sdf_impl<CollectLaneOccupancy>(nz, config, occupancy,
+                                                       native4_relevant_halves);
 
   __m256 nx_grad = _mm256_sub_ps(sdf_px, sdf_nx);
   __m256 ny_grad = _mm256_sub_ps(sdf_py, sdf_ny);
@@ -267,10 +354,29 @@ Vec3x8 estimate_normal(Vec3x8& p, render::RenderConfig const& config) {
   return Vec3x8(nx_grad, ny_grad, nz_grad).normalize();
 }
 
+template <bool CollectLaneOccupancy>
+MarchStep march_step_impl(Vec3x8 const& origins, Vec3x8 const& directions,
+                          __m256 distance, render::RenderConfig const& config,
+                          LaneOccupancy* occupancy) {
+  Vec3x8 position = origins + directions * distance;
+  return {position, distance,
+          scene_sdf_impl<CollectLaneOccupancy>(position, config, occupancy,
+                                               kBothNativeHalves)};
+}
+
+}  // namespace
+
+__m256 scene_sdf(Vec3x8& p, render::RenderConfig const& config) {
+  return scene_sdf_impl<false>(p, config, nullptr, kBothNativeHalves);
+}
+
+Vec3x8 estimate_normal(Vec3x8& p, render::RenderConfig const& config) {
+  return estimate_normal_impl<false>(p, config, nullptr, kBothNativeHalves);
+}
+
 MarchStep march_step(Vec3x8 const& origins, Vec3x8 const& directions,
                      __m256 distance, render::RenderConfig const& config) {
-  Vec3x8 position = origins + directions * distance;
-  return {position, distance, scene_sdf(position, config)};
+  return march_step_impl<false>(origins, directions, distance, config, nullptr);
 }
 
 __m256 advance_distance(MarchStep const& step, __m256 active_mask,
@@ -306,21 +412,49 @@ void clamp_color(Vec3x8& color) {
                              _mm256_min_ps(_mm256_set1_ps(255.0f), color.z256));
 }
 
-Vec3x8 trace_ray_packet(Camera const& camera, __m256 xs, __m256 ys,
-                        render::RenderConfig const& config) {
+namespace {
+
+template <bool CollectLaneOccupancy>
+Vec3x8 trace_ray_packet_impl(Camera const& camera, __m256 xs, __m256 ys,
+                             render::RenderConfig const& config,
+                             LaneOccupancy* occupancy) {
+  if constexpr (CollectLaneOccupancy) {
+    occupancy->ray_packets += 1;
+  }
+
   Vec3x8 directions = ray_directions(camera, xs, ys, config);
   Vec3x8 ray_origins(camera.position);
   __m256 distances = _mm256_set1_ps(0.0f);
   __m256 active_mask =
       _mm256_set1_ps(-std::numeric_limits<float>::signaling_NaN());
   Vec3x8 color(0.0f);
+  bool packet_hit = false;
+  unsigned packet_hit_halves = 0;
 
   for (int step_count = 0; step_count < config.max_steps; ++step_count) {
-    MarchStep step = march_step(ray_origins, directions, distances, config);
+    if constexpr (CollectLaneOccupancy) {
+      record_ray_iteration(*occupancy, step_count, active_mask);
+    }
+
+    MarchStep step = march_step_impl<CollectLaneOccupancy>(
+        ray_origins, directions, distances, config, occupancy);
 
     __m256 hits = _mm256_and_ps(hit_mask(step, config), active_mask);
     if (!_mm256_testz_ps(hits, hits)) {
-      Vec3x8 normals = estimate_normal(step.position, config);
+      unsigned native4_relevant_halves = kBothNativeHalves;
+      if constexpr (CollectLaneOccupancy) {
+        const std::size_t hit_lanes = active_lane_count(hits);
+        native4_relevant_halves = active_native_halves(hits);
+        packet_hit = true;
+        packet_hit_halves |= native4_relevant_halves;
+        occupancy->hit_lanes += hit_lanes;
+        occupancy->normal_batches += 1;
+        occupancy->normal_hit_lanes += hit_lanes;
+        occupancy->native4_normal_batches +=
+            std::popcount(native4_relevant_halves);
+      }
+      Vec3x8 normals = estimate_normal_impl<CollectLaneOccupancy>(
+          step.position, config, occupancy, native4_relevant_halves);
       apply_hit_color(color, normals, hits);
     }
 
@@ -328,6 +462,9 @@ Vec3x8 trace_ray_packet(Camera const& camera, __m256 xs, __m256 ys,
 
     __m256 misses = _mm256_and_ps(miss_mask(distances, config), active_mask);
     if (!_mm256_testz_ps(misses, misses)) {
+      if constexpr (CollectLaneOccupancy) {
+        occupancy->miss_lanes += active_lane_count(misses);
+      }
       color.multiplyWithMask(Vec3x8(0.0f), misses);
     }
 
@@ -338,21 +475,50 @@ Vec3x8 trace_ray_packet(Camera const& camera, __m256 xs, __m256 ys,
     }
   }
 
+  if constexpr (CollectLaneOccupancy) {
+    occupancy->hit_packets += packet_hit ? 1 : 0;
+    occupancy->native4_hit_packets += std::popcount(packet_hit_halves);
+    occupancy->max_step_lanes += active_lane_count(active_mask);
+  }
+
   clamp_color(color);
   return color;
 }
 
-void render(Camera const& camera, render::RenderConfig const& config,
-            render::Image& image) {
+template <bool CollectLaneOccupancy>
+void render_impl(Camera const& camera, render::RenderConfig const& config,
+                 render::Image& image, LaneOccupancy* occupancy) {
   for (int y = 0; y < config.height; ++y) {
     for (int x = 0; x < config.width; x += 8) {
       __m256 xs =
           _mm256_setr_ps(x, x + 1, x + 2, x + 3, x + 4, x + 5, x + 6, x + 7);
       __m256 ys = _mm256_set1_ps(y);
-      Vec3x8 color = trace_ray_packet(camera, xs, ys, config);
+      Vec3x8 color = trace_ray_packet_impl<CollectLaneOccupancy>(
+          camera, xs, ys, config, occupancy);
       set_color_to_image(image, color, xs, ys, config);
     }
   }
 }
+
+}  // namespace
+
+Vec3x8 trace_ray_packet(Camera const& camera, __m256 xs, __m256 ys,
+                        render::RenderConfig const& config) {
+  return trace_ray_packet_impl<false>(camera, xs, ys, config, nullptr);
+}
+
+void render(Camera const& camera, render::RenderConfig const& config,
+            render::Image& image) {
+  render_impl<false>(camera, config, image, nullptr);
+}
+
+#ifdef SIMD_RAY_MARCHER_ENABLE_LANE_OCCUPANCY
+void render_with_lane_occupancy(const Camera& camera,
+                                const render::RenderConfig& config,
+                                render::Image& image,
+                                LaneOccupancy& occupancy) {
+  render_impl<true>(camera, config, image, &occupancy);
+}
+#endif
 
 }  // namespace simd8
